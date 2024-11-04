@@ -45,7 +45,4 @@ jobs:
         run: |
           echo "Running git commands"
           git remote -v
-          # git remote add upstream git@github.com:kestra-io/kestra.git
           git fetch --all
-          git pull upstream develop
-          git status
