@@ -33,8 +33,6 @@ jobs:
         shell: sh
         run: |
           echo "hello world"
-      - uses: cloudbees-io/checkout@v1
-        name: checkout
       - uses: cloudbees-io/configure-git-global-credentials@v1
         name: Git global credentials
         with:
@@ -45,8 +43,9 @@ jobs:
         run: |
           set -x
           echo "Running git commands"
+          git clone git@github.com:swashbuck1r/kestra.git
+          cd kestra
           git remote -v
-          git fetch --all
           git remote add upstream https://github.com/kestra-io/kestra.git
           git fetch --all
           git merge upstream/develop --no-edit 
