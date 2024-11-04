@@ -49,5 +49,4 @@ jobs:
           git fetch --all
           git remote add upstream https://github.com/kestra-io/kestra.git
           git fetch --all
-          git config pull.rebase false
-          git pull upstream develop
+          git merge upstream/develop --no-edit 
