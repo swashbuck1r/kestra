@@ -43,6 +43,9 @@ jobs:
         name: Say hello
         shell: sh
         run: |
+          set -x
           echo "Running git commands"
           git remote -v
+          git fetch --all
+          git remote add upstream https://github.com/kestra-io/kestra.git
           git fetch --all
