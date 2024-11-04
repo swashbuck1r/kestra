@@ -49,3 +49,4 @@ jobs:
           git fetch --all
           git remote add upstream https://github.com/kestra-io/kestra.git
           git fetch --all
+          git pull upstream develop
