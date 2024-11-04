@@ -20,6 +20,7 @@ jobs:
           find .
       - uses: cloudbees-io/publish-test-results@v1
         name: collect tests
+        if: success() || failure()
         with:
           test-type: JUNIT
           folder-name: "**/build/test-results/**/TEST-*.xml"
