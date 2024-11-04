@@ -16,6 +16,8 @@ on:
     - cron: 50 * * * *
     - cron: 55 * * * *
   workflow_dispatch:
+permissions:
+  scm-token-own: write
 jobs:
   build:
     steps:
@@ -35,6 +37,8 @@ jobs:
         name: checkout
       - uses: cloudbees-io/configure-git-global-credentials@v1
         name: Git global credentials
+        with:
+          token: ${{ cloudbees.scm.token }}
       - uses: docker://alpine/git:v2.45.2
         name: Say hello
         shell: sh
