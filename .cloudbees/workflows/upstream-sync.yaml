@@ -50,4 +50,5 @@ jobs:
           git remote -v
           git remote add upstream https://github.com/kestra-io/kestra.git
           git fetch --all
-          git merge upstream/develop --no-edit 
+          git merge upstream/develop --no-edit
+          git push origin develop --no-verify
