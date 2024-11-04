@@ -9,11 +9,17 @@ on:
 jobs:
   build:
     steps:
-      - name: checkout
-        uses: cloudbees-io/checkout@v1
-      - name: gradle build
-        uses: docker://gradle:jdk21
+      - uses: cloudbees-io/checkout@v1
+        name: checkout
+      - uses: docker://gradle:jdk21
+        name: gradle build
+        kind: build
         shell: sh
         run: |
           ./gradlew build
           find .
+      - uses: cloudbees-io/publish-test-results@v1
+        name: collect tests
+        with:
+          test-type: JUNIT
+          folder-name: "**/build/test-results/**/TEST-*.xml"
