@@ -26,15 +26,17 @@ jobs:
           echo "hello world"
   sync:
     steps:
-      - name: Say hello
-        uses: docker://golang:1.20.3-alpine3.17
+      - uses: docker://golang:1.20.3-alpine3.17
+        name: Say hello
         shell: sh
         run: |
           echo "hello world"
-      - name: Git global credentials
-        uses: cloudbees-io/configure-git-global-credentials@v1
-      - name: Say hello
-        uses: docker://alpine/git:v2.45.2
+      - uses: cloudbees-io/checkout@v1
+        name: checkout
+      - uses: cloudbees-io/configure-git-global-credentials@v1
+        name: Git global credentials
+      - uses: docker://alpine/git:v2.45.2
+        name: Say hello
         shell: sh
         run: |
           echo "Running git commands"
