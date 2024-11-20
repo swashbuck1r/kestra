@@ -956,7 +956,8 @@
         "state": "상태",
         "child": "자식",
         "absolute_date": "절대 날짜",
-        "relative_date": "상대 날짜"
+        "relative_date": "상대 날짜",
+        "level": "로그 레벨"
       },
       "empty": "데이터 없음.",
       "label": "필터 선택",
@@ -975,6 +976,9 @@
     "item": "항목",
     "items": "항목",
     "warning": "경고",
-    "cron": "크론"
+    "cron": "크론",
+    "showMore": "더 보기",
+    "showLess": "덜 보기",
+    "documentationMenu": "문서 메뉴"
   }
 }
