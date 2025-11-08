@@ -23,7 +23,7 @@ import java.util.List;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Split a file from the Kestra's internal storage into multiple files."
+    title = "Split a file from Kestra's internal storage into multiple files."
 )
 @Plugin(
     examples = {
@@ -48,16 +48,23 @@ import java.util.List;
                 "partitions: 8"
             }
         ),
+        @Example(
+            title = "Split a file by regex pattern - group lines by captured value.",
+            code = {
+                "from: \"kestra://long/url/logs.txt\"",
+                "regexPattern: \"\\\\[(\\\\w+)\\\\]\""
+            }
+        ),
     },
     aliases = "io.kestra.core.tasks.storages.Split"
 )
 public class Split extends Task implements RunnableTask<Split.Output>, StorageSplitInterface {
     @Schema(
-        title = "The file to be split."
+        title = "The file to be split"
     )
-    @PluginProperty(dynamic = true)
     @NotNull
-    private String from;
+    @PluginProperty(internalStorageURI = true)
+    private Property<String> from;
 
     private Property<String> bytes;
 
@@ -65,12 +72,19 @@ public class Split extends Task implements RunnableTask<Split.Output>, StorageSp
 
     private Property<Integer> rows;
 
+    @Schema(
+        title = "Split file by regex pattern. Lines are grouped by the first capture group value.",
+        description = "A regular expression pattern with a capture group. Lines matching this pattern will be grouped by the captured value. For example, `\\[(\\w+)\\]` will group lines by log level (ERROR, WARN, INFO) extracted from log entries."
+    )
+    @PluginProperty(dynamic = true)
+    private Property<String> regexPattern;
+
     @Builder.Default
-    private Property<String> separator = Property.of("\n");
+    private Property<String> separator = Property.ofValue("\n");
 
     @Override
     public Split.Output run(RunContext runContext) throws Exception {
-        URI from = new URI(runContext.render(this.from));
+        URI from = new URI(runContext.render(this.from).as(String.class).orElseThrow());
 
         return Split.Output.builder()
             .uris(StorageService.split(runContext, this, from))
@@ -81,7 +95,7 @@ public class Split extends Task implements RunnableTask<Split.Output>, StorageSp
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The URIs of split files in the Kestra's internal storage."
+            title = "The URIs of split files in Kestra's internal storage"
         )
         private final List<URI> uris;
     }

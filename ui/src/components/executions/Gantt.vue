@@ -1,8 +1,12 @@
 <template>
-    <el-card id="gantt" shadow="never" v-if="execution && flow">
-        <template #header>
+    <ExecutionPending
+        v-if="!isExecutionStarted"
+        :execution="execution"
+    />
+    <el-card id="gantt" shadow="never" :class="{'no-border': !hasValidDate}" v-else-if="execution && executionsStore.flow">
+        <template #header v-if="hasValidDate">
             <div class="d-flex">
-                <duration class="th text-end" :histories="execution.state.histories" />
+                <Duration class="th text-end" :histories="execution.state.histories" />
                 <span class="text-end" v-for="(date, i) in dates" :key="i">
                     {{ date }}
                 </span>
@@ -11,21 +15,25 @@
         <template #default>
             <DynamicScroller
                 :items="filteredSeries"
-                :min-item-size="40"
-                key-field="id"
+                :minItemSize="40"
+                keyField="id"
                 :buffer="0"
-                :update-interval="0"
+                :updateInterval="0"
             >
                 <template #default="{item, index, active}">
                     <DynamicScrollerItem
                         :item="item"
                         :active="active"
                         :data-index="index"
-                        :size-dependencies="[selectedTaskRuns]"
+                        :sizeDependencies="[selectedTaskRuns]"
                     >
                         <div class="d-flex flex-column">
-                            <div class="gantt-row d-flex">
-                                <el-tooltip placement="top-start" :persistent="false" transition="" :hide-after="0" effect="light">
+                            <div class="gantt-row d-flex cursor-icon" @click="onTaskSelect(item.id)">
+                                <div class="d-inline-flex">
+                                    <ChevronRight v-if="!selectedTaskRuns.includes(item.id)" />
+                                    <ChevronDown v-else />
+                                </div>
+                                <el-tooltip placement="top-start" :persistent="false" transition="" :hideAfter="0" effect="light">
                                     <template #content>
                                         <code>{{ item.name }}</code>
                                         <small v-if="item.task && item.task.value"><br>{{ item.task.value }}</small>
@@ -35,21 +43,29 @@
                                         <small v-if="item.task && item.task.value"> {{ item.task.value }}</small>
                                     </span>
                                 </el-tooltip>
-                                <div @click="onTaskSelect(item.id)" class="cursor-pointer" :style="'width: ' + (100 / (dates.length + 1)) * dates.length + '%'">
-                                    <el-tooltip placement="top" :persistent="false" transition="" :hide-after="0" effect="light">
+                                <div>
+                                    <el-tooltip v-if="item.attempts > 1" placement="right" :persistent="false" :hideAfter="0" effect="light">
+                                        <template #content>
+                                            <span>{{ $t("this_task_has") }} {{ item.attempts }} {{ $t("attempts").toLowerCase() }}.</span>
+                                        </template>
+                                        <Warning class="attempt_warn me-3" />
+                                    </el-tooltip>
+                                </div>
+                                <div :style="'width: ' + (100 / (dates.length + 1)) * dates.length + '%'">
+                                    <el-tooltip placement="top" :persistent="false" transition="" :hideAfter="0" effect="light">
                                         <template #content>
                                             <span style="white-space: pre-wrap;">
                                                 {{ item.tooltip }}
                                             </span>
                                         </template>
                                         <div
-                                            :style="{left: item.start + '%', width: item.width + '%'}"
+                                            :style="item.parentEndPercent !== undefined ? {left: `${item.start}%`, width: `${item.parentEndPercent - item.start}%`} : {left: `${item.start}%`, width: `${Math.max(item.width, 3)}%`}"
                                             class="task-progress"
                                         >
                                             <div class="progress">
                                                 <div
+                                                    :style="{left: `${Math.min(item.left, 90)}%`, width: `${Math.max(100 - item.left, 10)}%`}"
                                                     class="progress-bar"
-                                                    :style="{left: item.left + '%', width: (100-item.left) + '%'}"
                                                     :class="'bg-' + item.color + (item.running ? ' progress-bar-striped progress-bar-animated' : '')"
                                                     role="progressbar"
                                                 />
@@ -58,16 +74,15 @@
                                     </el-tooltip>
                                 </div>
                             </div>
-                            <div v-if="selectedTaskRuns.includes(item.id)" class="p-0">
-                                <task-run-details
-                                    :task-run-id="item.id"
-                                    :exclude-metas="['namespace', 'flowId', 'taskId', 'executionId']"
+                            <div v-if="selectedTaskRuns.includes(item.id)" class="p-2">
+                                <TaskRunDetails
+                                    :taskRunId="item.id"
+                                    :excludeMetas="['namespace', 'flowId', 'taskId', 'executionId']"
                                     level="TRACE"
                                     @follow="forwardEvent('follow', $event)"
-                                    :target-execution="execution"
-                                    :target-flow="flow"
-                                    :show-logs="taskTypeByTaskRunId[item.id] !== 'io.kestra.plugin.core.flow.ForEachItem' && taskTypeByTaskRunId[item.id] !== 'io.kestra.core.tasks.flows.ForEachItem'"
-                                    class="mh-100"
+                                    :targetFlow="executionsStore.flow"
+                                    :showLogs="taskTypeByTaskRunId[item.id] !== 'io.kestra.plugin.core.flow.ForEachItem' && taskTypeByTaskRunId[item.id] !== 'io.kestra.core.tasks.flows.ForEachItem'"
+                                    class="mh-100 mx-3"
                                 />
                             </div>
                         </div>
@@ -79,37 +94,62 @@
 </template>
 <script>
     import TaskRunDetails from "../logs/TaskRunDetails.vue";
-    import {mapState} from "vuex";
-    import State from "../../utils/state";
+    import {State} from "@kestra-io/ui-libs"
     import Duration from "../layout/Duration.vue";
     import Utils from "../../utils/utils";
     import FlowUtils from "../../utils/flowUtils";
     import "vue-virtual-scroller/dist/vue-virtual-scroller.css"
     import {DynamicScroller, DynamicScrollerItem} from "vue-virtual-scroller";
+    import ChevronRight from "vue-material-design-icons/ChevronRight.vue";
+    import ChevronDown from "vue-material-design-icons/ChevronDown.vue";
+    import Warning from "vue-material-design-icons/Alert.vue";
+    import ExecutionPending from "./ExecutionPending.vue";
+    import {mapStores} from "pinia";
+    import {useExecutionsStore} from "../../stores/executions";
 
     const ts = date => new Date(date).getTime();
-    const TASKRUN_THRESHOLD = 50
+    const TASKRUN_THRESHOLD = 50;
     export default {
-        components: {DynamicScroller, DynamicScrollerItem, TaskRunDetails, Duration},
+        components: {
+            DynamicScroller,
+            Warning,
+            DynamicScrollerItem,
+            TaskRunDetails,
+            Duration,
+            ChevronRight,
+            ChevronDown,
+            ExecutionPending
+        },
         data() {
             return {
                 colors: State.colorClass(),
                 series: [],
-                realTime: true,
                 dates: [],
                 duration: undefined,
                 selectedTaskRuns: [],
-                taskTypesToExclude: ["io.kestra.plugin.core.flow.ForEachItem$ForEachItemSplit", "io.kestra.plugin.core.flow.ForEachItem$ForEachItemMergeOutputs", "io.kestra.plugin.core.flow.ForEachItem$ForEachItemExecutable", "io.kestra.core.tasks.flows.ForEachItem$ForEachItemSplit", "io.kestra.core.tasks.flows.ForEachItem$ForEachItemMergeOutputs", "io.kestra.core.tasks.flows.ForEachItem$ForEachItemExecutable"]
+                regularPaintingInterval: undefined,
+                taskTypesToExclude: [
+                    "io.kestra.plugin.core.flow.ForEachItem$ForEachItemSplit",
+                    "io.kestra.plugin.core.flow.ForEachItem$ForEachItemMergeOutputs",
+                    "io.kestra.plugin.core.flow.ForEachItem$ForEachItemExecutable",
+                    "io.kestra.core.tasks.flows.ForEachItem$ForEachItemSplit",
+                    "io.kestra.core.tasks.flows.ForEachItem$ForEachItemMergeOutputs",
+                    "io.kestra.core.tasks.flows.ForEachItem$ForEachItemExecutable"
+                ]
             };
         },
         watch: {
-            execution(newValue, oldValue) {
-                if (oldValue.id !== newValue.id && !this.realTime) {
-                    this.realTime = true;
-                    this.selectedTaskRuns = [];
-                    this.paint();
-                }
-                newValue.state?.current === State.SUCCESS && (this.compute());
+            execution: {
+                handler(newValue) {
+                    if (!State.isRunning(newValue.state?.current)) {
+                        clearInterval(this.regularPaintingInterval);
+                        this.regularPaintingInterval = undefined;
+                        this.compute();
+                    } else if (this.regularPaintingInterval === undefined) {
+                        this.regularPaintingInterval = setInterval(this.compute, this.taskRunsCount < TASKRUN_THRESHOLD ? 40 : 500);
+                    }
+                },
+                immediate: true
             },
             forEachItemsTaskRunIds: {
                 handler(newValue, oldValue) {
@@ -123,11 +163,11 @@
                 immediate: true
             }
         },
-        mounted() {
-            this.paint();
-        },
         computed: {
-            ...mapState("execution", ["flow", "execution"]),
+            ...mapStores(useExecutionsStore),
+            execution(){
+                return this.executionsStore.execution
+            },
             taskRunsCount() {
                 return this.execution && this.execution.taskRunList ? this.execution.taskRunList.length : 0
             },
@@ -155,7 +195,7 @@
                 const sortedTasks = []
                 const tasksById = {}
                 for (let task of (this.execution.taskRunList || [])) {
-                    const taskWrapper = {task}
+                    const taskWrapper = {task, depth: task.parentTaskRunId ? undefined : 0}
                     if (task.parentTaskRunId) {
                         childTasks.push(taskWrapper)
                     } else {
@@ -168,6 +208,7 @@
                     const taskWrapper = childTasks[i];
                     const parentTask = tasksById[taskWrapper.task.parentTaskRunId]
                     if (parentTask) {
+                        taskWrapper.depth = parentTask.depth + 1
                         tasksById[taskWrapper.task.id] = taskWrapper
                         if (!parentTask.children) {
                             parentTask.children = []
@@ -182,7 +223,7 @@
                         return nodeStart(n1) > nodeStart(n2) ? 1 : -1
                     })
                     for (let node of nodes) {
-                        sortedTasks.push(node.task)
+                        sortedTasks.push(node)
                         if (node.children) {
                             childrenSort(node.children)
                         }
@@ -190,22 +231,17 @@
                 }
                 childrenSort(rootTasks)
                 return sortedTasks
-            }
+            },
+            isExecutionStarted() {
+                return this.execution?.state?.current && !["CREATED", "QUEUED"].includes(this.execution.state.current);
+            },
+            hasValidDate() {
+                return isFinite(this.delta());
+            },
         },
         methods: {
             forwardEvent(type, event) {
                 this.$emit(type, event);
-            },
-            paint() {
-                const repaint = () => {
-                    this.compute()
-                    if (this.realTime) {
-                        const delay = this.taskRunsCount < TASKRUN_THRESHOLD ? 40 : 500
-                        setTimeout(repaint, delay);
-                    }
-                }
-
-                repaint();
             },
             compute() {
                 this.computeSeries();
@@ -229,13 +265,12 @@
                     return;
                 }
 
-                if (!State.isRunning(this.execution.state.current)) {
-                    this.stopRealTime();
-                }
-
                 const series = [];
-                const executionDelta = this.delta(); //caching this value matters
-                for (let task of this.tasks) {
+                const executionDelta = this.delta();
+                const taskMap = {};
+                
+                for (let taskWrapper of this.tasks) {
+                    let task = taskWrapper.task
                     let stopTs;
                     if (State.isRunning(task.state.current)) {
                         stopTs = ts(new Date());
@@ -264,13 +299,21 @@
 
                     let width = (stop / executionDelta) * 100
                     if (State.isRunning(task.state.current)) {
-                        width = ((this.stop() - startTs) / executionDelta) * 100 //(stop / executionDelta) * 100
+                        width = ((this.stop() - startTs) / executionDelta) * 100
                     }
 
-                    series.push({
+                    let startPercent = (start / executionDelta) * 100;
+                    let parentEndPercent = undefined;
+                    
+                    if (task.parentTaskRunId && taskMap[task.parentTaskRunId]) {
+                        const parent = taskMap[task.parentTaskRunId];
+                        parentEndPercent = parent.start + parent.width;
+                    }
+
+                    const seriesItem = {
                         id: task.id,
                         name: task.taskId,
-                        start: (start / executionDelta) * 100,
+                        start: startPercent,
                         width,
                         left: left,
                         tooltip,
@@ -279,8 +322,14 @@
                         task,
                         flowId: task.flowId,
                         namespace: task.namespace,
-                        executionId: task.outputs && task.outputs.executionId
-                    });
+                        executionId: task.outputs && task.outputs.executionId,
+                        attempts: task.attempts ? task.attempts.length : 1,
+                        depth: taskWrapper.depth,
+                        parentEndPercent: parentEndPercent
+                    };
+                    
+                    taskMap[task.id] = seriesItem;
+                    series.push(seriesItem);
                 }
                 this.series = series;
             },
@@ -303,20 +352,18 @@
 
                 this.selectedTaskRuns.push(taskRunId);
             },
-            stopRealTime() {
-                this.realTime = false
-            },
             taskType(taskRun) {
-                const task = FlowUtils.findTaskById(this.flow, taskRun.taskId);
+                const task = FlowUtils.findTaskById(this.executionsStore.flow, taskRun.taskId);
                 return task?.type;
             }
         },
         unmounted() {
-            this.stopRealTime();
+            clearInterval(this.regularPaintingInterval);
         }
     };
 </script>
-<style lang="scss" scoped>
+
+<style scoped lang="scss">
     .el-card {
         padding: 0;
 
@@ -327,7 +374,7 @@
 
             > div {
                 > * {
-                    padding: calc(var(--spacer) / 2);
+                    padding: .5rem;
                     flex: 1;
                 }
 
@@ -352,11 +399,12 @@
                 }
 
                 &::-webkit-scrollbar-track {
-                    background: var(--bs-gray-500);
+                    background: var(--ks-background-body);
                 }
 
                 &::-webkit-scrollbar-thumb {
-                    background: var(--bs-primary);
+                    background: var(--ks-border-primary);
+                    border-radius: 5px;
                 }
             }
 
@@ -367,7 +415,7 @@
                 }
 
                 > * {
-                    padding: calc(var(--spacer) / 2);
+                    padding: 1rem .5rem;
                 }
 
                 .el-tooltip__trigger {
@@ -379,12 +427,18 @@
                     small {
                         margin-left: 5px;
                         font-family: var(--bs-font-monospace);
-                        font-size: var(--font-size-xs)
+                        font-size: var(--font-size-xs);
                     }
 
                     code {
-                        font-size: 0.7rem;
+                        font-size: var(--font-size-xs);
+                        color: var(--ks-content-primary);
                     }
+                }
+
+                .attempt_warn{
+                    color: var(--el-color-warning);
+                    vertical-align: middle;
                 }
 
                 .task-progress {
@@ -393,15 +447,14 @@
                     min-width: 5px;
 
                     .progress {
-                        height: 21px;
+                        height: 25px;
                         border-radius: var(--bs-border-radius-sm);
-                        position: relative;
-                        cursor: pointer;
                         background-color: var(--bs-gray-200);
+                        cursor: pointer;
 
                         .progress-bar {
                             position: absolute;
-                            height: 21px;
+                            height: 25px;
                             transition: none;
                         }
                     }
@@ -410,34 +463,27 @@
         }
     }
 
-    .cursor-pointer {
+    .no-border {
+        border: none !important;
+    }
+
+    // To Separate through Line
+    :deep(.vue-recycle-scroller__item-view) {
+        border-bottom: 1px solid var(--ks-border-primary);
+        margin-bottom: 10px;
+
+        &:last-child {
+            border-bottom: none;
+        }
+    }
+
+    .cursor-icon {
         cursor: pointer;
     }
 
     :deep(.log-wrapper) {
         > .vue-recycle-scroller__item-wrapper > .vue-recycle-scroller__item-view > div {
-            padding-bottom: 0;
-        }
-
-        .attempt-wrapper {
-            margin-bottom: 0;
-            border-radius: 0;
-            border: 0;
-            border-top: 1px solid var(--bs-gray-600);
-            border-bottom: 1px solid var(--bs-gray-600);
-
-            tbody:last-child & {
-                border-bottom: 0;
-            }
-
-            .attempt-header {
-                padding: calc(var(--spacer) / 2);
-            }
-
-            .line {
-                padding-left: calc(var(--spacer) / 2);
-            }
+            border-radius: var(--bs-border-radius-lg);
         }
     }
-
 </style>

@@ -3,6 +3,7 @@ package io.kestra.plugin.core.state;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -19,7 +20,7 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Set a state in the state store.",
+    title = "Set a state in the state store (Deprecated, use KV store instead).",
     description = "Values will be merged: \n" +
         "* If you provide a new key, the new key will be added.\n" +
         "* If you provide an existing key, the previous key will be overwrite.\n" +
@@ -55,20 +56,20 @@ import java.util.Map;
     },
     aliases = "io.kestra.core.tasks.states.Set"
 )
+@Deprecated(since = "1.1.0", forRemoval = true)
 public class Set extends AbstractState implements RunnableTask<Set.Output> {
     @Schema(
-        title = "The data to be stored in the state store."
+        title = "The data to be stored in the state store"
     )
-    @PluginProperty(dynamic = true, additionalProperties = Object.class)
-    private Map<String, Object> data;
+    private Property<Map<String, Object>> data;
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        Pair<String, Map<String, Object>> data = this.merge(runContext, runContext.render(this.data));
+        Pair<String, Map<String, Object>> dataRendered = this.merge(runContext, runContext.render(this.data).asMap(String.class, Object.class));
 
         return Output.builder()
-            .count(data.getRight().size())
-            .key(data.getLeft().toString())
+            .count(dataRendered.getRight().size())
+            .key(dataRendered.getLeft())
             .build();
     }
 
@@ -76,12 +77,12 @@ public class Set extends AbstractState implements RunnableTask<Set.Output> {
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The count of properties found in the state."
+            title = "The count of properties found in the state"
         )
         private final int count;
 
         @Schema(
-            title = "The key of the current state."
+            title = "The key of the current state"
         )
         private final String key;
     }

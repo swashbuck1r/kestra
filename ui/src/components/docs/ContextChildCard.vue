@@ -1,67 +1,17 @@
-<script setup>
-    import {computed, ref, onMounted} from "vue";
-    import {useStore} from "vuex";
-
-    import ContextDocsLink from "./ContextDocsLink.vue";
-
-    const store = useStore();
-
-    const props = defineProps({
-        pageUrl: {
-            type: String,
-            default: undefined
-        }
-    });
-
-    const currentPage = computed(() => {
-        if (props.pageUrl) {
-            return props.pageUrl.replace(/^\//, "").replace(/\/$/, "");
-        } else {
-            const p = store.getters["doc/docPath"];
-            return p ? `docs/${p.replace(/^\/?(.*?)\/?$/, "$1").replace(/^\.\//, "/")}` : p;
-        }
-    })
-
-
-    const resourcesWithMetadata = ref({});
-    onMounted(async () => {
-        resourcesWithMetadata.value = await store.dispatch("doc/children", currentPage.value);
-    })
-
-    const navigation = computed(() => {
-        let parentMetadata;
-        if (props.pageUrl) {
-            parentMetadata = {...resourcesWithMetadata.value[currentPage.value]};
-            delete parentMetadata.description;
-        }
-
-        const parentLevel = currentPage.value.split("/").length;
-        return Object.entries(resourcesWithMetadata.value)
-            .filter(([path]) => path.split("/").length === parentLevel + 1)
-            .filter(([path]) => path !== currentPage.value)
-            .map(([path, metadata]) => ({
-                path: path.replace(/^docs\//, ""),
-                ...parentMetadata,
-                ...metadata
-            }))
-    });
-
-</script>
-
 <template>
     <div class="row row-cols-1 row-cols-xxl-2 g-3 card-group">
-        <context-docs-link
+        <ContextDocsLink
             :href="item.path"
             class="col"
             v-for="item in navigation"
             :key="item.path"
-            use-raw
+            useRaw
         >
             <div class="card h-100">
                 <div class="card-body d-flex align-items-center">
                     <span class="card-icon">
                         <img
-                            :src="$store.getters['doc/resourceUrl'](item.icon)"
+                            :src="docStore.resourceUrl(item.icon)"
                             :alt="item.title"
                             width="50px"
                             height="50px"
@@ -77,11 +27,60 @@
                     </div>
                 </div>
             </div>
-        </context-docs-link>
+        </ContextDocsLink>
     </div>
 </template>
 
-<style lang="scss" scoped>
+<script setup lang="ts">
+    import {computed, ref, onMounted} from "vue";
+    import {useDocStore} from "../../stores/doc";
+
+    import ContextDocsLink from "./ContextDocsLink.vue";
+
+    const docStore = useDocStore();
+
+    const props = defineProps({
+        pageUrl: {
+            type: String,
+            default: undefined
+        }
+    });
+
+    const currentPage = computed(() => {
+        if (props.pageUrl) {
+            return props.pageUrl.replace(/^\//, "").replace(/\/$/, "");
+        } else {
+            const p = docStore.docPath;
+            return p ? `docs/${p.replace(/^\/?(.*?)\/?$/, "$1").replace(/^\.\//, "/")}` : "";
+        }
+    })
+
+
+    const resourcesWithMetadata = ref<Record<string, any>>({});
+    onMounted(async () => {
+        resourcesWithMetadata.value = await docStore.children(currentPage.value);
+    })
+
+    const navigation = computed(() => {
+        let parentMetadata: Record<string, any> = {};
+        if (props.pageUrl) {
+            parentMetadata = {...resourcesWithMetadata.value[currentPage.value]};
+            delete parentMetadata.description;
+        }
+
+        const parentLevel = currentPage.value.split("/").length;
+        return Object.entries(resourcesWithMetadata.value)
+            .filter(([path]) => path.split("/").length === parentLevel + 1)
+            .filter(([path]) => path !== currentPage.value)
+            .map(([path, metadata]) => ({
+                path: path.replace(/^docs\//, ""),
+                ...parentMetadata,
+                ...metadata
+            }))
+    });
+</script>
+
+<style scoped lang="scss">
     @import "@kestra-io/ui-libs/src/scss/variables";
 
     .card-title {

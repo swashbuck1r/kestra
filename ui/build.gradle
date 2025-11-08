@@ -1,39 +1,22 @@
-import org.siouan.frontendgradleplugin.infrastructure.gradle.RunNpmTaskType
-
 plugins {
-    id 'org.siouan.frontend-jdk21'
+    id 'com.github.node-gradle.node'
 }
 
-publishSonatypePublicationPublicationToSonatypeRepository.enabled = false
-
-frontend {
-    nodeVersion = '18.18.0'
-    installScript = 'install'
-    assembleScript = 'run build'
-    checkScript = 'run test:unit'
-    maxDownloadAttempts = 5
+node {
+    download = true
+    version = '22.12.0'
 }
 
-tasks.named('installFrontend') {
-    inputs.files('package.json', 'package-lock.json')
-    outputs.dir('node_modules')
-}
+tasks.register('assembleFrontend', NpmTask) {
+    dependsOn npmInstall
+    description = 'Builds the frontend'
 
-tasks.named('assembleFrontend') {
-    shouldRunAfter installFrontend
+    inputs.files(fileTree('node_modules'))
+    inputs.files(fileTree('src'))
+    inputs.file('index.html')
+    inputs.file('package.json')
+    inputs.file('vite.config.js')
 
-    inputs.dir('src')
-    inputs.dir('public')
-    inputs.files('vite.config.js')
+    args = ['run', 'build']
     outputs.dir('../webserver/src/main/resources/ui')
 }
-
-final linterTask = tasks.register('lintFrontend', RunNpmTaskType) {
-    dependsOn tasks.named('installFrontend')
-    group 'Frontend'
-    description 'Lints the frontend source code.'
-
-    args = 'run test:lint'
-}
-
-check.dependsOn linterTask

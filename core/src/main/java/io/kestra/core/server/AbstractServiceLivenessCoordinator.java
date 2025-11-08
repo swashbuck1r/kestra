@@ -9,6 +9,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
@@ -35,6 +37,8 @@ public abstract class AbstractServiceLivenessCoordinator extends AbstractService
 
     protected final ServiceLivenessStore store;
 
+    protected final ServiceRegistry serviceRegistry;
+
     // mutable for testing purpose
     protected String serverId = ServerInstance.INSTANCE_ID;
 
@@ -46,8 +50,10 @@ public abstract class AbstractServiceLivenessCoordinator extends AbstractService
      */
     @Inject
     public AbstractServiceLivenessCoordinator(final ServiceLivenessStore store,
+                                              final ServiceRegistry serviceRegistry,
                                               final ServerConfig serverConfig) {
         super(TASK_NAME, serverConfig);
+        this.serviceRegistry = serviceRegistry;
         this.store = store;
     }
 
@@ -56,6 +62,15 @@ public abstract class AbstractServiceLivenessCoordinator extends AbstractService
      **/
     @Override
     protected void onSchedule(Instant now) throws Exception {
+        if (Optional.ofNullable(serviceRegistry.get(ServiceType.EXECUTOR))
+            .filter(service -> service.instance().is(RUNNING))
+            .isEmpty()) {
+            log.debug(
+                "The liveness coordinator task was temporarily disabled. Executor is not yet in the RUNNING state."
+            );
+            return;
+        }
+
         // Update all RUNNING but non-responding services to DISCONNECTED.
         handleAllNonRespondingServices(now);
 
@@ -121,6 +136,9 @@ public abstract class AbstractServiceLivenessCoordinator extends AbstractService
         // ...all services that have transitioned to TERMINATED_FORCED.
         uncleanShutdownServices.addAll(instances.stream()
             .filter(nonRunning -> nonRunning.is(Service.ServiceState.TERMINATED_FORCED))
+            // Only select workers that have been terminated for at least the grace period, to ensure that all in-flight
+            // task runs had enough time to be fully handled by the executors.
+            .filter(terminated -> terminated.isTerminationGracePeriodElapsed(now))
             .toList()
         );
         return uncleanShutdownServices;
@@ -129,6 +147,7 @@ public abstract class AbstractServiceLivenessCoordinator extends AbstractService
     protected List<ServiceInstance> filterAllNonRespondingServices(final List<ServiceInstance> instances,
                                                                    final Instant now) {
         return instances.stream()
+            .filter(instance -> Objects.nonNull(instance.config())) // protect against non-complete instance
             .filter(instance -> instance.config().liveness().enabled())
             .filter(instance -> instance.isSessionTimeoutElapsed(now))
             // exclude any service running on the same server as the executor, to prevent the latter from shutting down.
@@ -152,14 +171,14 @@ public abstract class AbstractServiceLivenessCoordinator extends AbstractService
     protected void handleAllServiceInNotRunningState() {
         // Soft delete all services which are NOT_RUNNING anymore.
         store.findAllInstancesInStates(Set.of(Service.ServiceState.NOT_RUNNING))
-            .forEach(instance -> safelyUpdate(instance, Service.ServiceState.EMPTY, null));
+            .forEach(instance -> safelyUpdate(instance, Service.ServiceState.INACTIVE, null));
     }
 
     protected void handleAllServicesForTerminatedStates(final Instant now) {
         store
             .findAllInstancesInStates(Set.of(DISCONNECTED, TERMINATING, TERMINATED_GRACEFULLY, TERMINATED_FORCED))
             .stream()
-            .filter(instance -> !instance.is(Service.ServiceType.WORKER)) // WORKERS are handle above.
+            .filter(instance -> !instance.is(ServiceType.WORKER)) // WORKERS are handle above.
             .filter(instance -> instance.isTerminationGracePeriodElapsed(now))
             .peek(instance -> maybeLogNonRespondingAfterTerminationGracePeriod(instance, now))
             .forEach(instance -> safelyUpdate(instance, NOT_RUNNING, DEFAULT_REASON_FOR_NOT_RUNNING));

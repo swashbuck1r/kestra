@@ -1,14 +1,14 @@
 <template>
-    <div class="barWrapper" :class="{opened: activeTab?.length > 0}">
+    <div v-if="Object.keys(buttons).length" class="barWrapper" :class="{opened: activeTab?.length > 0}">
         <button v-if="activeTab.length" class="barResizer" ref="resizeHandle" @mousedown="startResizing" />
 
         <el-button
-            v-for="(button, key) of buttonsList"
+            v-for="(button, key) of {...buttons, ...props.additionalButtons}"
             :key="key"
             :type="activeTab === key ? 'primary' : 'default'"
             :tag="button.url ? 'a' : 'button'"
             :href="button.url"
-            @click="() => {if(!button.url){ setActiveTab(key)}}"
+            @click="() => {if(!button.url){ setActiveTab(key as string)}}"
             :target="button.url ? '_blank' : undefined"
         >
             <component :is="button.icon" class="context-button-icon" />{{ button.title }}
@@ -22,102 +22,83 @@
             effect="light"
             :persistent="false"
             transition=""
-            :hide-after="0"
-            :disabled="!configs.commitId"
+            :hideAfter="0"
+            :disabled="!miscStore.configs?.commitId"
         >
             <template #content>
-                <code>{{ configs.commitId }}</code> <DateAgo v-if="configs.commitDate" :inverted="true" :date="configs.commitDate" />
+                <code>{{ miscStore.configs?.commitId }}</code> <DateAgo v-if="miscStore.configs?.commitDate" :inverted="true" :date="miscStore.configs.commitDate" />
             </template>
-            <span class="versionNumber">{{ configs?.version }}</span>
+            <span class="versionNumber">{{ miscStore.configs?.version }}</span>
         </el-tooltip>
+        <el-button class="theme-switcher" @click="onSwitchTheme">
+            <WeatherNight v-if="themeIsDark" />
+            <WeatherSunny v-else />
+        </el-button>
     </div>
-    <div class="panelWrapper" :class="{panelTabResizing: resizing}" :style="{width: activeTab?.length ? `${panelWidth}px` : 0}">
+    <div class="panelWrapper" ref="panelWrapper" :class="{panelTabResizing: resizing}" :style="{width: activeTab?.length ? `${panelWidth}px` : 0}">
         <div :style="{overflow: 'hidden'}">
-            <button v-if="activeTab.length" class="closeButton" @click="activeTab = ''">
+            <button v-if="activeTab.length" class="closeButton" @click="setActiveTab('')">
                 <Close />
             </button>
-            <ContextDocs v-if="activeTab === 'docs'" />
-            <ContextNews v-else-if="activeTab === 'news'" />
-            <template v-else>
-                {{ activeTab }}
-            </template>
+            <KeepAlive v-if="activeTab">
+                <ContextDocs v-if="activeTab === 'docs'" />
+                <ContextNews v-else-if="activeTab === 'news'" />
+                <template v-else>
+                    {{ activeTab }}
+                </template>
+            </KeepAlive>
         </div>
     </div>
 </template>
 
-<script lang="ts" setup>
-    import {computed, ref, watch, type Ref, type Component} from "vue";
-    import {useMouse, watchThrottled} from "@vueuse/core"
+<script setup lang="ts">
+    import {computed, ref, watch, type Ref, type Component, PropType} from "vue";
+    import {useMouse, watchThrottled, useStorage} from "@vueuse/core"
     import ContextDocs from "./docs/ContextDocs.vue"
     import ContextNews from "./layout/ContextNews.vue"
     import DateAgo from "./layout/DateAgo.vue"
 
-    import MessageOutline from "vue-material-design-icons/MessageOutline.vue"
-    import FileDocument from "vue-material-design-icons/FileDocument.vue"
-    import Slack from "vue-material-design-icons/Slack.vue"
-    import Github from "vue-material-design-icons/Github.vue"
-    import Calendar from "vue-material-design-icons/Calendar.vue"
     import Close from "vue-material-design-icons/Close.vue"
     import OpenInNew from "vue-material-design-icons/OpenInNew.vue"
+    import WeatherSunny from "vue-material-design-icons/WeatherSunny.vue"
+    import WeatherNight from "vue-material-design-icons/WeatherNight.vue"
 
-    import {useStorage} from "@vueuse/core"
-    import {useStore} from "vuex";
-    import {useI18n} from "vue-i18n";
+    import Utils from "../utils/utils";
+    import {useApiStore} from "../stores/api";
+    import {useMiscStore} from "override/stores/misc";
 
-    const {t} = useI18n();
+    import {useContextButtons} from "override/composables/contextButtons";
+    const {buttons} = useContextButtons();
 
-    const store = useStore();
+    const apiStore = useApiStore();
+    const miscStore = useMiscStore();
 
-    const configs = computed(() => store.state.misc.configs);
+    const activeTab = computed(() => miscStore.contextInfoBarOpenTab)
 
     const lastNewsReadDate = useStorage<string | null>("feeds", null)
 
     const hasUnread = computed(() => {
-        const feeds = store.state.misc.feeds
+        const feeds = apiStore.feeds
         return (
             lastNewsReadDate.value === null ||
             (feeds?.[0] && (new Date(lastNewsReadDate.value) < new Date(feeds[0].publicationDate)))
         )
     })
 
-    const buttonsList: Record<string, {
-        title:string,
-        icon: Component,
-        component?: Component,
-        url?: string,
-        hasUnreadMarker?: boolean
-    }> = {
-        news: {
-            title: t("contextBar.news"),
-            icon: MessageOutline,
-            component: ContextNews,
-            hasUnreadMarker: true
-        },
-        docs: {
-            title: t("contextBar.docs"),
-            icon: FileDocument,
-            component: ContextDocs
-        },
-        help: {
-            title: t("contextBar.help"),
-            icon: Slack,
-            url: "https://kestra.io/slack"
-        },
-        issue: {
-            title: t("contextBar.issue"),
-            icon: Github,
-            url: "https://github.com/kestra-io/kestra/issues/new/choose"
-        },
-        demo: {
-            title: t("contextBar.demo"),
-            icon: Calendar,
-            url: "https://kestra.io/demo"
+    const props = defineProps({
+        additionalButtons: {
+            type: Object as PropType<Record<string, {
+                title: string;
+                icon?: Component;
+                url: string;
+                hasUnreadMarker: false;
+            }>>,
+            default: () => ({})
         }
-    }
+    });
 
     const panelWidth = ref(640)
-
-    const activeTab = ref("")
+    const panelWrapper = ref<HTMLDivElement | null>(null)
 
     const {startResizing, resizing} = useResizablePanel(activeTab)
 
@@ -155,14 +136,22 @@
 
     function setActiveTab(tab: string) {
         if (activeTab.value === tab) {
-            activeTab.value = ""
+            miscStore.contextInfoBarOpenTab = "";
         } else {
-            activeTab.value = tab
+            miscStore.contextInfoBarOpenTab = tab;
         }
+    }
+
+    const themeIsDark = ref(localStorage.getItem("theme") === "dark")
+
+    const onSwitchTheme = () => {
+        themeIsDark.value = !themeIsDark.value;
+        const theme = themeIsDark.value ? "dark" : "light";
+        Utils.switchTheme(miscStore, theme);
     }
 </script>
 
-<style lang="scss" scoped>
+<style scoped lang="scss">
     @use 'element-plus/theme-chalk/src/mixins/mixins' as *;
 
     .barResizer {
@@ -172,7 +161,7 @@
         top: 0;
         left: 0;
         z-index: 1040;
-        background-color: var(--bs-primary);
+        background-color: var(--ks-button-background-primary);
         opacity: 0;
         transition: opacity .1s;
         border: none;
@@ -189,14 +178,19 @@
         padding: 0.75rem;
         writing-mode: vertical-rl;
         text-orientation: mixed;
-        border-left: 1px solid var(--el-border-color);
+        border-left: 1px solid var(--ks-border-primary);
         display: flex;
         align-items: center;
         gap: 0.5rem;
         font-size: var(--font-size-sm);
+        overflow-y: auto;
+        &::-webkit-scrollbar {
+            width: 0;
+        }
+        scrollbar-width: none;
 
         &.opened {
-            border-right: 1px solid var(--el-border-color);
+            border-right: 1px solid var(--ks-border-primary);
         }
 
         .el-button {
@@ -212,11 +206,14 @@
         }
 
         .versionNumber {
-            color: var(--bs-gray-400);
-            html.dark & {
-                color: var(--bs-gray-600);
-            }
-            margin-top: var(--spacer);
+            color: var(--ks-content-tertiary);
+            opacity: .4;
+            margin-top: 1rem;
+            white-space: nowrap;
+        }
+
+        .theme-switcher {
+            transform: rotate(-90deg);
         }
 
         .context-button-icon {
@@ -239,8 +236,8 @@
         .newsDot{
             width: 10px;
             height: 10px;
-            background-color: var(--content-alert);
-            border: 2px solid var(--el-button-bg-color);
+            background-color: var(--ks-content-alert);
+            border: 2px solid var(--ks-button-background-secondary);
             border-radius: 50%;
             display: block;
             position: absolute;
@@ -254,12 +251,16 @@
         width: 0;
         position: relative;
         overflow-y: auto;
+        &::-webkit-scrollbar {
+            width: 0px;
+        }
+        scrollbar-width: none;
 
         .closeButton {
             position: fixed;
-            top: var(--spacer);
-            right: var(--spacer);
-            color: var(--bs-tertiary-color);
+            top: 1rem;
+            right: 1rem;
+            color: var(--ks-content-tertiary);
             background: none;
             border: none;
         }

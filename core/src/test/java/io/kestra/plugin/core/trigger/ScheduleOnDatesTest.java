@@ -22,8 +22,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.CoreMatchers.is;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @KestraTest
 class ScheduleOnDatesTest {
@@ -42,8 +41,9 @@ class ScheduleOnDatesTest {
         var later = now.plusMinutes(2).truncatedTo(ChronoUnit.SECONDS);
         var scheduleOnDates = ScheduleOnDates.builder()
             .id(IdUtils.create())
+            .type(ScheduleOnDates.class.getName())
             .interval(null)
-            .dates(Property.of(List.of(before, after, later)))
+            .dates(Property.ofValue(List.of(before, after, later)))
             .build();
         var triggerContext = TriggerContext.builder().date(now).build();
         var trigger = Trigger.of(triggerContext, now);
@@ -53,7 +53,7 @@ class ScheduleOnDatesTest {
         ZonedDateTime nextDate = scheduleOnDates.nextEvaluationDate(conditionContext, Optional.of(trigger));
 
         // then
-        assertThat(nextDate, is(after));
+        assertThat(nextDate).isEqualTo(after);
     }
 
     @Test
@@ -65,8 +65,9 @@ class ScheduleOnDatesTest {
         var later = now.plusMinutes(2).truncatedTo(ChronoUnit.SECONDS);
         var scheduleOnDates = ScheduleOnDates.builder()
             .id(IdUtils.create())
+            .type(ScheduleOnDates.class.getName())
             .interval(null)
-            .dates(Property.of(List.of(before, after, later)))
+            .dates(Property.ofValue(List.of(before, after, later)))
             .build();
         var conditionContext = conditionContext(scheduleOnDates);
 
@@ -74,7 +75,7 @@ class ScheduleOnDatesTest {
         ZonedDateTime nextDate = scheduleOnDates.nextEvaluationDate(conditionContext, Optional.empty());
 
         // then
-        assertThat(nextDate, is(before));
+        assertThat(nextDate).isEqualTo(before);
     }
 
     @Test
@@ -86,8 +87,9 @@ class ScheduleOnDatesTest {
         var next = now.plusMinutes(1).truncatedTo(ChronoUnit.SECONDS);
         var scheduleOnDates = ScheduleOnDates.builder()
             .id(IdUtils.create())
+            .type(ScheduleOnDates.class.getName())
             .interval(null)
-            .dates(Property.of(List.of(first, before, next)))
+            .dates(Property.ofValue(List.of(first, before, next)))
             .build();
         var conditionContext = conditionContext(scheduleOnDates);
 
@@ -95,7 +97,7 @@ class ScheduleOnDatesTest {
         ZonedDateTime previousDate = scheduleOnDates.previousEvaluationDate(conditionContext);
 
         // then
-        assertThat(previousDate, is(before));
+        assertThat(previousDate).isEqualTo(before);
     }
 
     private ConditionContext conditionContext(AbstractTrigger trigger) {
@@ -110,7 +112,7 @@ class ScheduleOnDatesTest {
             )
             .inputs(List.of(
                 StringInput.builder().id("input1").type(Type.STRING).required(false).build(),
-                StringInput.builder().id("input2").type(Type.STRING).defaults("default").build()
+                StringInput.builder().id("input2").type(Type.STRING).defaults(Property.ofValue("default")).build()
             ))
             .build();
 

@@ -4,6 +4,7 @@ import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
@@ -112,23 +113,21 @@ import static io.kestra.core.utils.PathUtil.checkLeadingSlash;
 public class UploadFiles extends Task implements RunnableTask<UploadFiles.Output> {
     @NotNull
     @Schema(
-        title = "The namespace to which the files will be uploaded."
+        title = "The namespace to which the files will be uploaded"
     )
-    @PluginProperty(dynamic = true)
-    private String namespace;
+    private Property<String> namespace;
 
     @Schema(
-        title = "A list of Regex that match files in the current directory.",
+        title = "A list of Regex that match files in the current directory",
         description = "This should be a list of Regex matching the [Apache Ant patterns](https://ant.apache.org/manual/dirtasks.html#patterns)." +
             "It's primarily intended to be used with the `WorkingDirectory` task"
     )
-    @PluginProperty(dynamic = true)
-    private List<String> files;
+    private Property<List<String>> files;
 
     @Schema(
         title = "A map of key-value pairs where the key is the filename and the value is the URI of the file to upload.",
-        description = "This should be a map of URI, with the key being the filename that will be upload, and the key the URI." +
-            "This one is intended to be used with output files of other tasks. Many Kestra tasks, incl. all Downloads tasks, " +
+        description = "This should be a map of URI, with the key being the filename that will be upload and the key the URI." +
+            "This property is intended to be used with the output files of other tasks. Many Kestra tasks, incl. all Downloads tasks, " +
             "output a map of files so that you can directly pass the output property to this task e.g. " +
             "[outputFiles in the S3 Downloads task](https://kestra.io/plugins/plugin-aws/tasks/s3/io.kestra.plugin.aws.s3.downloads#outputfiles) " +
             "or the [files in the Archive Decompress task](https://kestra.io/plugins/plugin-compress/tasks/io.kestra.plugin.compress.archivedecompress#files).",
@@ -138,27 +137,26 @@ public class UploadFiles extends Task implements RunnableTask<UploadFiles.Output
     private Object filesMap;
 
     @Schema(
-        title = "The destination folder.",
+        title = "The destination folder",
         description = "Required when providing a list of files."
     )
-    @PluginProperty(dynamic = true)
     @Builder.Default
-    private String destination = "/";
+    private Property<String> destination = Property.ofValue("/");
 
     @Builder.Default
 
     @Schema(
-        title = "Which action to take when uploading a file that already exists.",
+        title = "Which action to take when uploading a file that already exists",
         description = "Can be one of the following options: OVERWRITE, ERROR or SKIP. Default is OVERWRITE."
     )
-    private Namespace.Conflicts conflict = Namespace.Conflicts.OVERWRITE;
+    private Property<Namespace.Conflicts> conflict = Property.ofValue(Namespace.Conflicts.OVERWRITE);
 
     @Override
     @SuppressWarnings({"unchecked"})
     public UploadFiles.Output run(RunContext runContext) throws Exception {
         RunContext.FlowInfo flowInfo = runContext.flowInfo();
-        String renderedNamespace = namespace != null ? runContext.render(namespace) : flowInfo.namespace();
-        String renderedDestination = checkLeadingSlash(runContext.render(destination));
+        String renderedNamespace = namespace != null ? runContext.render(namespace).as(String.class).orElseThrow() : flowInfo.namespace();
+        String renderedDestination = checkLeadingSlash(runContext.render(destination).as(String.class).orElseThrow());
 
         final Namespace storageNamespace = runContext.storage().namespace(renderedNamespace);
 
@@ -166,8 +164,9 @@ public class UploadFiles extends Task implements RunnableTask<UploadFiles.Output
             throw new IllegalArgumentException("files or filesMap is required");
         }
 
-        if (files != null) {
-            this.uploadFiles(runContext, files, storageNamespace, renderedDestination);
+        var renderedFiles = runContext.render(this.files).asList(String.class);
+        if (!renderedFiles.isEmpty()) {
+            this.uploadFiles(runContext, renderedFiles, storageNamespace, renderedDestination);
         }
 
         if (filesMap != null) {
@@ -192,7 +191,7 @@ public class UploadFiles extends Task implements RunnableTask<UploadFiles.Output
             Path resolve = Paths.get("/").resolve(runContext.workingDir().path().relativize(file.toPath()));
 
             Path targetFilePath = Path.of(destination, resolve.toString());
-            storageNamespace.putFile(targetFilePath, new FileInputStream(file), conflict);
+            storageNamespace.putFile(targetFilePath, new FileInputStream(file), runContext.render(conflict).as(Namespace.Conflicts.class).orElseThrow());
         }
     }
 
@@ -204,7 +203,11 @@ public class UploadFiles extends Task implements RunnableTask<UploadFiles.Output
             if (key instanceof String targetFilePath && value instanceof String stringSourceFileURI) {
                 URI sourceFileURI = URI.create(stringSourceFileURI);
                 if (runContext.storage().isFileExist(sourceFileURI)) {
-                    storageNamespace.putFile(Path.of(destination + targetFilePath), runContext.storage().getFile(sourceFileURI), conflict);
+                    storageNamespace.putFile(
+                        Path.of(destination + targetFilePath),
+                        runContext.storage().getFile(sourceFileURI),
+                        runContext.render(conflict).as(Namespace.Conflicts.class).orElseThrow()
+                    );
                 }
             } else {
                 throw new IllegalArgumentException("filesMap must be a Map<String, String>");

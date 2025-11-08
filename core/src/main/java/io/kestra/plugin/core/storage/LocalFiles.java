@@ -3,6 +3,7 @@ package io.kestra.plugin.core.storage;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Output;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
@@ -22,8 +23,8 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "This task is deprecated and replaced by `inputFiles` property available in all script tasks and in the [WorkingDirectory](https://kestra.io/plugins/core/tasks/io.kestra.plugin.core.flow.workingdirectory) task. Check the [migration guide](https://kestra.io/docs/migration-guide/0.17.0/local-files) for more details. ",
-    description = "This task was intended to be used along with the `WorkingDirectory` task to create temporary files. This task suffers from multiple limitations e.g. it cannot be skipped, so setting `disabled: true` will have no effect. Overall, the WorkingDirectory task is more flexible and should be used instead of this task. This task will be removed in a future version of Kestra."
+    title = "Create temporary files (Deprecated).",
+    description = "This task is deprecated and replaced by the `inputFiles` property available in all script tasks and in the [WorkingDirectory](https://kestra.io/plugins/core/tasks/io.kestra.plugin.core.flow.workingdirectory) task. Check the [migration guide](https://kestra.io/docs/migration-guide/0.17.0/local-files) for more details. This task suffers from multiple limitations, such as that it cannot be skipped, so setting `disabled: true` will have no effect. Overall, the WorkingDirectory task is more flexible and should be used instead of this task. This task will be removed in a future version of Kestra."
 )
 @Deprecated
 @Plugin(examples = {
@@ -45,7 +46,6 @@ import java.util.Map;
 
                       - id: git_python_scripts
                         type: io.kestra.plugin.scripts.python.Commands
-                        warningOnStdErr: false
                         runner: DOCKER
                         docker:
                           image: ghcr.io/kestra-io/pydata:latest
@@ -122,23 +122,22 @@ import java.util.Map;
 )
 public class LocalFiles extends Task implements RunnableTask<LocalFiles.LocalFilesOutput> {
     @Schema(
-        title = "The files to be created on the local filesystem. It can be a map or a JSON object.",
+        title = "The files to be created on the local filesystem; it can be a map or a JSON object.",
         oneOf = { Map.class, String.class }
     )
     @PluginProperty(dynamic = true)
     private Object inputs;
 
     @Schema(
-        title = "The files from the local filesystem to be sent to the Kestra's internal storage.",
+        title = "The files from the local filesystem to be sent to the Kestra's internal storage",
         description = "Must be a list of [glob](https://en.wikipedia.org/wiki/Glob_(programming)) expressions relative to the current working directory, some examples: `my-dir/**`, `my-dir/*/**` or `my-dir/my-file.txt`."
     )
-    @PluginProperty(dynamic = true)
-    private List<String> outputs;
+    private Property<List<String>> outputs;
 
     @Override
     public LocalFilesOutput run(RunContext runContext) throws Exception {
         FilesService.inputFiles(runContext, this.inputs);
-        Map<String, URI> outputFiles = FilesService.outputFiles(runContext, this.outputs);
+        Map<String, URI> outputFiles = FilesService.outputFiles(runContext, runContext.render(this.outputs).asList(String.class));
 
         return LocalFilesOutput.builder()
             .uris(outputFiles)
@@ -148,7 +147,7 @@ public class LocalFiles extends Task implements RunnableTask<LocalFiles.LocalFil
     @Builder
     @Getter
     public static class LocalFilesOutput implements Output {
-        @Schema(title = "The URI of the files that have been sent to the Kestra's internal storage.")
+        @Schema(title = "The URI of the files that have been sent to the Kestra's internal storage")
         private Map<String, URI> uris;
     }
 }

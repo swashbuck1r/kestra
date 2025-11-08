@@ -8,12 +8,16 @@ import io.kestra.jdbc.JooqDSLContextWrapper;
 import io.micronaut.context.annotation.EachBean;
 import io.micronaut.context.annotation.Parameter;
 import io.micronaut.data.model.Pageable;
+import io.micronaut.data.model.Sort;
+import io.micronaut.data.model.Sort.Order;
 import jakarta.inject.Inject;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.RecordMapper;
+import org.jooq.Result;
+import org.jooq.Select;
 import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 
@@ -55,15 +59,16 @@ public class MysqlRepository<T> extends AbstractJdbcRepository<T> {
         return DSL.condition("MATCH (" + String.join(", ", fields) + ") AGAINST (? IN BOOLEAN MODE)", match);
     }
 
+    @Override
     public <R extends Record, E> ArrayListTotal<E> fetchPage(DSLContext context, SelectConditionStep<R> select, Pageable pageable, RecordMapper<R, E> mapper) {
-        List<E> map = this.pageable(select, pageable)
-            .fetch()
-            .map(mapper);
+        Integer rows = context.fetchCount(select);
+        Result<R> records = this.pageable(select, pageable).fetch();
+        return new ArrayListTotal<>(records.map(mapper), rows);
+    }
 
-        return dslContextWrapper.transactionResult(configuration -> new ArrayListTotal<>(
-            map,
-            DSL.using(configuration).fetchOne("SELECT FOUND_ROWS()").into(Integer.class)
-        ));
+    @Override
+    public <R extends Record> Select<R> buildQuery(DSLContext context, SelectConditionStep<R> select, String orderField){
+        return this.sort(select, Pageable.from(Sort.of(Order.asc(orderField))));
     }
 
     public Field<Integer> weekFromTimestamp(Field<Timestamp> timestampField) {

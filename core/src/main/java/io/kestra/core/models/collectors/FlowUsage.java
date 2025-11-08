@@ -22,6 +22,10 @@ import java.util.stream.Stream;
 @Jacksonized
 @Introspected
 public class FlowUsage {
+
+    // Namespace used for 'Getting Started' flows.
+    private static final String TUTORIAL_NAMESPACE = "tutorial";
+
     private final Integer count;
     private final Long namespacesCount;
     private final Map<String, Long> taskTypeCount;
@@ -37,12 +41,13 @@ public class FlowUsage {
     }
 
     public static FlowUsage of(List<Flow> flows) {
+        List<Flow> filtered = flows.stream().filter(flow -> !TUTORIAL_NAMESPACE.equals(flow.getNamespace())).toList();
         return FlowUsage.builder()
-            .count(count(flows))
-            .namespacesCount(namespacesCount(flows))
-            .taskTypeCount(taskTypeCount(flows))
-            .triggerTypeCount(triggerTypeCount(flows))
-            .taskRunnerTypeCount(taskRunnerTypeCount(flows))
+            .count(count(filtered))
+            .namespacesCount(namespacesCount(filtered))
+            .taskTypeCount(taskTypeCount(filtered))
+            .triggerTypeCount(triggerTypeCount(filtered))
+            .taskRunnerTypeCount(taskRunnerTypeCount(filtered))
             .build();
     }
 
@@ -85,7 +90,7 @@ public class FlowUsage {
             })
             .map(t -> {
                 try {
-                    TaskRunner taskRunner = (TaskRunner) t.getClass().getMethod("getTaskRunner").invoke(t);
+                    TaskRunner<?> taskRunner = (TaskRunner<?>) t.getClass().getMethod("getTaskRunner").invoke(t);
                     return taskRunner != null ? taskRunner.getType() : null;
                 } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
                     return null;

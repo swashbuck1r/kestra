@@ -2,18 +2,18 @@ package io.kestra.plugin.core.kv;
 
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.DefaultRunContext;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.services.FlowService;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
-import org.codehaus.commons.nullanalysis.NotNull;
 
 import java.util.NoSuchElementException;
 
@@ -21,7 +21,7 @@ import java.util.NoSuchElementException;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Deletes a KV pair."
+    title = "Delete a KV pair."
 )
 @Plugin(
     examples = {
@@ -44,38 +44,35 @@ import java.util.NoSuchElementException;
 public class Delete extends Task implements RunnableTask<Delete.Output> {
     @NotNull
     @Schema(
-        title = "The key for which to delete the value."
+        title = "The key specifying the value to delete"
     )
-    @PluginProperty(dynamic = true)
-    private String key;
+    private Property<String> key;
 
     @NotNull
     @Schema(
-        title = "The namespace on which to set the value."
+        title = "The namespace to set the value in"
     )
-    @PluginProperty(dynamic = true)
     @Builder.Default
-    private String namespace = "{{ flow.namespace }}";
+    private Property<String> namespace = Property.ofExpression("{{ flow.namespace }}");
 
     @NotNull
     @Schema(
-        title = "Whether to fail if there is no value for the given key."
+        title = "Flag specifying whether to fail if there is no value for the given key"
     )
-    @PluginProperty
     @Builder.Default
-    private boolean errorOnMissing = false;
+    private Property<Boolean> errorOnMissing = Property.ofValue(false);
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String renderedNamespace = runContext.render(this.namespace);
+        String renderedNamespace = runContext.render(this.namespace).as(String.class).orElseThrow();
 
         FlowService flowService = ((DefaultRunContext) runContext).getApplicationContext().getBean(FlowService.class);
         flowService.checkAllowedNamespace(runContext.flowInfo().tenantId(), renderedNamespace, runContext.flowInfo().tenantId(), runContext.flowInfo().namespace());
 
-        String renderedKey = runContext.render(this.key);
+        String renderedKey = runContext.render(this.key).as(String.class).orElseThrow();
 
         boolean deleted = runContext.namespaceKv(renderedNamespace).delete(renderedKey);
-        if (this.errorOnMissing && !deleted) {
+        if (Boolean.TRUE.equals(runContext.render(this.errorOnMissing).as(Boolean.class).orElseThrow()) && !deleted) {
             throw new NoSuchElementException("No value found for key '" + renderedKey + "' in namespace '" + renderedNamespace + "' and `errorOnMissing` is set to true");
         }
 
@@ -86,7 +83,7 @@ public class Delete extends Task implements RunnableTask<Delete.Output> {
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "Whether the deletion was successful and had a value."
+            title = "Flag specifying whether the deletion was successful and had a value"
         )
         private final boolean deleted;
     }

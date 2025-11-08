@@ -1,6 +1,14 @@
 <template>
-    <context-info-content :title="t('feeds.title')">
-        <div class="post" :class="{lastPost: index === 0, expanded: expanded[feed.id]}" v-for="(feed, index) in feeds" :key="feed.id">
+    <ContextInfoContent ref="contextInfoRef" :title="t('feeds.title')">
+        <div
+            class="post"
+            :class="{
+                lastPost: index === 0,
+                expanded: expanded[feed.id]
+            }"
+            v-for="(feed, index) in feeds"
+            :key="feed.id"
+        >
             <div v-if="feed.image" class="mr-2">
                 <img :src="feed.image" alt="">
             </div>
@@ -8,10 +16,9 @@
                 <h5>
                     {{ feed.title }}
                 </h5>
-                <date-ago class-name="news-date small" :inverted="true" :date="feed.publicationDate" format="LL" />
+                <DateAgo className="news-date small" :inverted="true" :date="feed.publicationDate" format="LL" :showTooltip="false" />
             </div>
-
-            <markdown class="markdown-tooltip mt-3 postParagraph" :source="feed.description" />
+            <Markdown class="markdown-tooltip postParagraph" :source="feed.description" />
 
             <div class="newsButtonBar">
                 <el-button
@@ -33,16 +40,16 @@
                 </el-button>
             </div>
 
-            <el-divider v-if="index !== feeds.length - 1" />
+            <el-divider class="mb-2" v-if="index !== feeds.length - 1" />
         </div>
-    </context-info-content>
+    </ContextInfoContent>
 </template>
 
-<script lang="ts" setup>
-    import {computed, onMounted, reactive} from "vue";
-    import {useStore} from "vuex";
+<script setup lang="ts">
+    import {computed, onMounted, reactive, ref} from "vue";
     import {useI18n} from "vue-i18n";
     import {useStorage} from "@vueuse/core"
+    import {useScrollMemory} from "../../composables/useScrollMemory"
 
     import OpenInNew from "vue-material-design-icons/OpenInNew.vue";
     import MenuDown from "vue-material-design-icons/MenuDown.vue";
@@ -51,22 +58,28 @@
     import DateAgo from "./DateAgo.vue";
     import ContextInfoContent from "../ContextInfoContent.vue";
 
-    const store = useStore();
-    const {t} = useI18n();
+    import {useApiStore} from "../../stores/api";
 
-    const feeds = computed(() => store.state.api.feeds);
+    const apiStore = useApiStore();
+    const {t} = useI18n({useScope: "global"});
 
-    const expanded = reactive({});
+    const contextInfoRef = ref<InstanceType<typeof ContextInfoContent> | null>(null);
+    const feeds = computed(() => apiStore.feeds);
+
+    const expanded = reactive<Record<string, boolean>>({});
 
     const lastNewsReadDate = useStorage<string | null>("feeds", null)
     onMounted(() => {
         lastNewsReadDate.value = feeds.value[0].publicationDate;
     });
+
+    const scrollableElement = computed(() => contextInfoRef.value?.contentRef || null)
+    useScrollMemory(ref("context-panel-news"), scrollableElement as any)
 </script>
 
-<style lang="scss" scoped>
+<style scoped lang="scss">
     .post {
-        padding: var(--spacer);
+        padding: 1rem 1rem 0rem 1rem;
 
         h5 {
             margin-bottom: 0;
@@ -78,7 +91,7 @@
             max-width: 10rem;
             margin-right: 1rem;
             float: left;
-            border-radius: var(--border-radius-lg);
+            border-radius: var(--bs-border-radius-lg);
         }
 
         .metaBlock {
@@ -92,8 +105,8 @@
 
         hr {
             border-top-color: var(--bs-gray-700);
-            margin-top: calc(var(--spacer) * 2);
-            margin-bottom: calc(var(--spacer) * 2);
+            margin-top: .5rem;
+            margin-bottom: .5rem;
         }
 
         .small {
@@ -106,7 +119,7 @@
         }
 
         .expandIcon {
-            margin-right:var(--spacer);
+            margin-right: 1rem;
         }
     }
 
@@ -126,7 +139,7 @@
             float: none;
             max-width: none;
             max-height: none;
-            margin-bottom: var(--spacer)
+            margin-bottom: 1rem;
         }
     }
 
@@ -144,10 +157,10 @@
 
     .newsButtonBar {
         display: flex;
-        margin-top: var(--spacer);
+        margin-top: 1rem;
     }
 
     :deep(.news-date) {
-        color: var(--bs-gray-700);
+        color: var(--ks-content-secondary);
     }
 </style>

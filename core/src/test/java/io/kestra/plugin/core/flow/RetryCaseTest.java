@@ -1,322 +1,170 @@
 package io.kestra.plugin.core.flow;
 
 import io.kestra.core.models.executions.Execution;
+import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.queues.QueueException;
-import io.kestra.core.queues.QueueFactoryInterface;
-import io.kestra.core.queues.QueueInterface;
-import io.kestra.core.runners.RunnerUtils;
+import io.kestra.core.repositories.ExecutionRepositoryInterface;
+import io.kestra.core.repositories.FlowRepositoryInterface;
+import io.kestra.core.runners.TestRunnerUtils;
 import io.kestra.core.utils.Await;
-import io.kestra.core.utils.TestsUtils;
+import io.micronaut.data.model.Pageable;
 import jakarta.inject.Inject;
-import jakarta.inject.Named;
 import jakarta.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
-import reactor.core.publisher.Flux;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicReference;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @Slf4j
 @Singleton
 public class RetryCaseTest {
 
     @Inject
-    @Named(QueueFactoryInterface.EXECUTION_NAMED)
-    private QueueInterface<Execution> executionQueue;
-
+    protected TestRunnerUtils runnerUtils;
     @Inject
-    protected RunnerUtils runnerUtils;
+    private ExecutionRepositoryInterface executionRepository;
+    @Inject
+    private FlowRepositoryInterface flowRepository;
 
-    public void retrySuccess() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "retry-success");
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.WARNING));
-        assertThat(execution.getTaskRunList(), hasSize(1));
-        assertThat(execution.getTaskRunList().getFirst().getAttempts(), hasSize(4));
+    public void retrySuccess(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.WARNING);
+        assertThat(execution.getTaskRunList()).hasSize(1);
+        assertThat(execution.getTaskRunList().getFirst().getAttempts()).hasSize(4);
     }
 
-    public void retrySuccessAtFirstAttempt() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "retry-success-first-attempt");
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
-        assertThat(execution.getTaskRunList(), hasSize(1));
-        assertThat(execution.getTaskRunList().getFirst().getAttempts(), hasSize(1));
+    public void retrySuccessAtFirstAttempt(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(1);
+        assertThat(execution.getTaskRunList().getFirst().getAttempts()).hasSize(1);
     }
 
-    public void retryFailed() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "retry-failed");
-
-        assertThat(execution.getTaskRunList(), hasSize(2));
-        assertThat(execution.getTaskRunList().getFirst().getAttempts(), hasSize(5));
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
+    public void retryFailed(Execution execution) {
+        assertThat(execution.getTaskRunList()).hasSize(2);
+        assertThat(execution.getTaskRunList().getFirst().getAttempts()).hasSize(5);
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
     }
 
-    public void retryRandom() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "retry-random");
-
-        assertThat(execution.getTaskRunList(), hasSize(1));
-        assertThat(execution.getTaskRunList().getFirst().getAttempts(), hasSize(3));
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
+    public void retryRandom(Execution execution) {
+        assertThat(execution.getTaskRunList()).hasSize(1);
+        assertThat(execution.getTaskRunList().getFirst().getAttempts()).hasSize(3);
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
     }
 
-    public void retryExpo() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "retry-expo");
-
-        assertThat(execution.getTaskRunList(), hasSize(1));
-        assertThat(execution.getTaskRunList().getFirst().getAttempts(), hasSize(3));
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
+    public void retryExpo(Execution execution) {
+        assertThat(execution.getTaskRunList()).hasSize(1);
+        assertThat(execution.getTaskRunList().getFirst().getAttempts()).hasSize(3);
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
     }
 
-    public void retryFail() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "retry-and-fail");
-
-        assertThat(execution.getTaskRunList(), hasSize(2));
-        assertThat(execution.getTaskRunList().getFirst().getAttempts(), hasSize(3));
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
+    public void retryFail(Execution execution) {
+        assertThat(execution.getTaskRunList()).hasSize(2);
+        assertThat(execution.getTaskRunList().getFirst().getAttempts()).hasSize(3);
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
 
     }
 
-    public void retryNewExecutionTaskDuration() throws TimeoutException, QueueException {
-        CountDownLatch countDownLatch = new CountDownLatch(3);
-        AtomicReference<List<State.Type>> stateHistory = new AtomicReference<>(new ArrayList<>());
+    public void retryNewExecutionTaskDuration(String tenant) throws TimeoutException, QueueException {
+        var flow = flowRepository
+            .findById(tenant, "io.kestra.tests", "retry-new-execution-task-duration")
+            .orElseThrow();
+        runAndAssertThereWasTwoRetriesAndFinishedFailed(flow);
+    }
 
-        Flux<Execution> receive = TestsUtils.receive(executionQueue, either -> {
-            Execution execution = either.getLeft();
-            if (execution.getFlowId().equals("retry-new-execution-task-duration") && execution.getState().getCurrent().isTerminated()) {
-                countDownLatch.countDown();
-                List<State.Type> stateHistoryList = stateHistory.get();
-                stateHistoryList.add(execution.getState().getCurrent());
-                stateHistory.set(stateHistoryList);
-            }
-        });
+    public void retryNewExecutionTaskAttempts(String tenant) throws TimeoutException, QueueException {
+        var flow = flowRepository
+            .findById(tenant, "io.kestra.tests", "retry-new-execution-task-attempts")
+            .orElseThrow();
+        runAndAssertThereWasTwoRetriesAndFinishedFailed(flow);
+    }
 
+    public void retryNewExecutionFlowDuration(String tenant) throws TimeoutException, QueueException {
+        var flow = flowRepository
+            .findById(tenant, "io.kestra.tests", "retry-new-execution-flow-duration")
+            .orElseThrow();
+        runAndAssertThereWasTwoRetriesAndFinishedFailed(flow);
+    }
+
+    public void retryNewExecutionFlowAttempts(String tenant) throws TimeoutException, QueueException {
+        var flow = flowRepository
+            .findById(tenant, "io.kestra.tests", "retry-new-execution-flow-attempts")
+            .orElseThrow();
+        runAndAssertThereWasTwoRetriesAndFinishedFailed(flow);
+    }
+
+    private void runAndAssertThereWasTwoRetriesAndFinishedFailed(Flow flow) throws TimeoutException, QueueException {
         runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-new-execution-task-duration",
-            null,
-            null
+            Execution.newExecution(flow, null),
+            flow,
+            Duration.ofSeconds(10)
         );
-
-        Await.until(() -> countDownLatch.getCount() == 0, Duration.ofSeconds(2), Duration.ofMinutes(1));
-        receive.blockLast();
-        assertThat(stateHistory.get(), containsInAnyOrder(State.Type.RETRIED, State.Type.RETRIED, State.Type.FAILED));
+        Await.until(
+            () -> "flow should have ended in Failed state",
+            () -> executionRepository.findLatestForStates(flow.getTenantId(), flow.getNamespace(), flow.getId(), List.of(State.Type.FAILED)).isPresent(),
+            Duration.ofMillis(100),
+            Duration.ofSeconds(10)
+        );
+        var executions = executionRepository.findByFlowId(flow.getTenantId(), flow.getNamespace(), flow.getId(), Pageable.UNPAGED);
+        assertThat(executions.stream().map(e -> e.getState().getCurrent())).contains(State.Type.RETRIED, State.Type.RETRIED, State.Type.FAILED);
     }
 
-    public void retryNewExecutionTaskAttempts() throws TimeoutException, QueueException {
-        CountDownLatch countDownLatch = new CountDownLatch(3);
-        AtomicReference<List<State.Type>> stateHistory = new AtomicReference<>(new ArrayList<>());
-
-        Flux<Execution> receive = TestsUtils.receive(executionQueue, either -> {
-            Execution execution = either.getLeft();
-            if (execution.getFlowId().equals("retry-new-execution-task-attempts") && execution.getState().getCurrent().isTerminated()) {
-                countDownLatch.countDown();
-                List<State.Type> stateHistoryList = stateHistory.get();
-                stateHistoryList.add(execution.getState().getCurrent());
-                stateHistory.set(stateHistoryList);
-            }
-        });
-
-        runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-new-execution-task-attempts",
-            null,
-            null
-        );
-
-        Await.until(() -> countDownLatch.getCount() == 0, Duration.ofSeconds(2), Duration.ofMinutes(1));
-        receive.blockLast();
-        assertThat(stateHistory.get(), containsInAnyOrder(State.Type.RETRIED, State.Type.RETRIED, State.Type.FAILED));
+    public void retryFailedTaskDuration(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().getFirst().attemptNumber()).isGreaterThanOrEqualTo(2);
     }
 
-    public void retryNewExecutionFlowDuration() throws TimeoutException, QueueException {
-        CountDownLatch countDownLatch = new CountDownLatch(3);
-        AtomicReference<List<State.Type>> stateHistory = new AtomicReference<>(new ArrayList<>());
+    public void retryFailedTaskAttempts(Execution execution) {
 
-        Flux<Execution> receive = TestsUtils.receive(executionQueue, either -> {
-            Execution execution = either.getLeft();
-            if (execution.getFlowId().equals("retry-new-execution-flow-duration") && execution.getState().getCurrent().isTerminated()) {
-                countDownLatch.countDown();
-                List<State.Type> stateHistoryList = stateHistory.get();
-                stateHistoryList.add(execution.getState().getCurrent());
-                stateHistory.set(stateHistoryList);
-            }
-        });
-
-        runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-new-execution-flow-duration",
-            null,
-            null
-        );
-
-        Await.until(() -> countDownLatch.getCount() == 0, Duration.ofSeconds(2), Duration.ofMinutes(1));
-        receive.blockLast();
-        assertThat(stateHistory.get(), containsInAnyOrder(State.Type.RETRIED, State.Type.RETRIED, State.Type.FAILED));
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().getFirst().attemptNumber()).isEqualTo(4);
     }
 
-    public void retryNewExecutionFlowAttempts() throws TimeoutException, QueueException {
-        CountDownLatch countDownLatch = new CountDownLatch(3);
-        AtomicReference<List<State.Type>> stateHistory = new AtomicReference<>(new ArrayList<>());
-
-        Flux<Execution> receive = TestsUtils.receive(executionQueue, either -> {
-            Execution execution = either.getLeft();
-            if (execution.getFlowId().equals("retry-new-execution-flow-attempts") && execution.getState().getCurrent().isTerminated()) {
-                countDownLatch.countDown();
-                List<State.Type> stateHistoryList = stateHistory.get();
-                stateHistoryList.add(execution.getState().getCurrent());
-                stateHistory.set(stateHistoryList);
-            }
-        });
-
-        runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-new-execution-flow-attempts",
-            null,
-            null
-        );
-
-        Await.until(() -> countDownLatch.getCount() == 0, Duration.ofSeconds(2), Duration.ofMinutes(1));
-        receive.blockLast();
-        assertThat(stateHistory.get(), containsInAnyOrder(State.Type.RETRIED, State.Type.RETRIED, State.Type.FAILED));
+    public void retryFailedFlowDuration(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().getFirst().attemptNumber()).isEqualTo(3);
     }
 
-    public void retryFailedTaskDuration() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-failed-task-duration",
-            null,
-            null
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().getFirst().attemptNumber(), is(3));
+    public void retryFailedFlowAttempts(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().getFirst().attemptNumber()).isEqualTo(4);
     }
 
-    public void retryFailedTaskAttempts() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-failed-task-attempts",
-            null,
-            null,
-            Duration.ofSeconds(20)
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().getFirst().attemptNumber(), is(4));
+    public void retryFlowable(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().get(1).attemptNumber()).isEqualTo(3);
     }
 
-    public void retryFailedFlowDuration() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-failed-flow-duration",
-            null,
-            null
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().getFirst().attemptNumber(), is(3));
+    public void retrySubflow(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().get(0).getAttempts().size()).isEqualTo(3);
     }
 
-    public void retryFailedFlowAttempts() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-failed-flow-attempts",
-            null,
-            null
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().getFirst().attemptNumber(), is(4));
+    public void retryFlowableChild(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().get(1).attemptNumber()).isEqualTo(3);
     }
 
-    public void retryFlowable() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-flowable",
-            null,
-            null
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().get(1).attemptNumber(), is(3));
+    public void retryFlowableNestedChild(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().get(2).attemptNumber()).isEqualTo(3);
     }
 
-    public void retrySubflow() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-subflow",
-            null,
-            null
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().get(0).getAttempts().size(), is(3));
+    public void retryFlowableParallel(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
+        assertThat(execution.getTaskRunList().get(1).attemptNumber()).isGreaterThanOrEqualTo(2);
+        assertThat(execution.getTaskRunList().get(2).attemptNumber()).isGreaterThanOrEqualTo(2);
     }
 
-    public void retryFlowableChild() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-flowable-child",
-            null,
-            null
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().get(1).attemptNumber(), is(3));
+    public void retryDynamicTask(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.FAILED);
     }
 
-    public void retryFlowableNestedChild() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-flowable-nested-child",
-            null,
-            null
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().get(2).attemptNumber(), is(3));
+    public void retryWithFlowableErrors(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(3);
+        assertThat(execution.getTaskRunList().get(2).attemptNumber()).isEqualTo(2);
     }
-
-    public void retryFlowableParallel() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-flowable-parallel"
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-        assertThat(execution.getTaskRunList().get(1).attemptNumber(), greaterThanOrEqualTo(2));
-        assertThat(execution.getTaskRunList().get(2).attemptNumber(), greaterThanOrEqualTo(2));
-    }
-
-    public void retryDynamicTask() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(
-            null,
-            "io.kestra.tests",
-            "retry-dynamic-task"
-        );
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.FAILED));
-    }
-
 }

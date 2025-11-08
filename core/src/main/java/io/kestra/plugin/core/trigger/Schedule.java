@@ -50,7 +50,7 @@ import java.util.stream.Stream;
     description = "You can add multiple Schedule triggers to a flow.\n" +
         "The scheduler keeps track of the last scheduled date, allowing you to easily [backfill](https://kestra.io/docs/concepts/backfill) missed executions.\n" +
         "Keep in mind that if you change the trigger ID, the scheduler will consider this as a new schedule, and will start creating new scheduled executions from the current date.\n" +
-        "By default, all schedules will use UTC. If you need a different timezone, add the `timezone` property to your trigger definition."
+        "By default, all schedules use UTC. If you need a different timezone, add the `timezone` property to your trigger definition."
 )
 @Plugin(
     examples = {
@@ -64,7 +64,8 @@ import java.util.stream.Stream;
             tasks:
               - id: sleep_randomly
                 type: io.kestra.plugin.scripts.shell.Commands
-                runner: PROCESS
+                taskRunner:
+                  type: io.kestra.plugin.core.runner.Process
                 commands:
                   - echo "{{ trigger.date ?? execution.startDate }}"
                   - sleep $((RANDOM % 60 + 1))
@@ -73,6 +74,24 @@ import java.util.stream.Stream;
               - id: every_15_minutes
                 type: io.kestra.plugin.core.trigger.Schedule
                 cron: "*/15 * * * *"
+            """
+        ),
+        @Example(
+            full = true,
+            title = "Schedule a flow every day at 6:30 AM",
+            code = """
+                id: daily_flow
+                namespace: company.team
+
+                tasks:
+                  - id: log
+                    type: io.kestra.plugin.core.log.Log
+                    message: It's {{ trigger.date ?? taskrun.startDate | date("HH:mm") }}
+
+                triggers:
+                  - id: schedule
+                    type: io.kestra.plugin.core.trigger.Schedule
+                    cron: 30 6 * * *
             """
         ),
         @Example(
@@ -94,7 +113,7 @@ import java.util.stream.Stream;
             full = true
         ),
         @Example(
-            title = "Schedule a flow on the first Monday of the month at 11 AM.",
+            title = "Schedule a flow on the first Monday of the month at 11:00 AM.",
             code = """
                 id: scheduled_flow
                 namespace: company.team
@@ -133,7 +152,7 @@ import java.util.stream.Stream;
                 cron: "0 9 * * *"
                 stopAfter:
                   - FAILED"""
-        ),
+        )
     },
     aliases = "io.kestra.core.models.triggers.types.Schedule"
 )
@@ -159,22 +178,24 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
     @NotNull
     @Schema(
         title = "The cron expression.",
-        description = "A standard [unix cron expression](https://en.wikipedia.org/wiki/Cron) with 5 fields (minutes precision). Using `withSeconds: true` you can switch to 6 fields and a seconds precision.\n" +
-            "Can also be a cron extension / nickname:\n" +
-            "* `@yearly`\n" +
-            "* `@annually`\n" +
-            "* `@monthly`\n" +
-            "* `@weekly`\n" +
-            "* `@daily`\n" +
-            "* `@midnight`\n" +
-            "* `@hourly`"
+        description = """
+            A standard [unix cron expression](https://en.wikipedia.org/wiki/Cron) with 5 fields (minutes precision). Using `withSeconds: true` you can switch to 6 fields and a seconds precision.
+            Both `0` and `7` represent Sunday for the day-of-week field.
+            Can also be a cron extension / nickname:
+            * `@yearly`
+            * `@annually`
+            * `@monthly`
+            * `@weekly`
+            * `@daily`
+            * `@midnight`
+            * `@hourly`"""
     )
     @PluginProperty
     private String cron;
 
     @Schema(
         title = "Whether the cron expression has seconds precision",
-        description = "By default, the cron expression has 5 fields, setting this property to true will allow a 6th fields for seconds precision."
+        description = "By default, the cron expression has 5 fields. Setting this property to true allows for a 6th field to be used for seconds precision."
     )
     @NotNull
     @Builder.Default
@@ -204,13 +225,13 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
     private List<ScheduleCondition> scheduleConditions;
 
     @Schema(
-        title = "The inputs to pass to the scheduled flow."
+        title = "The inputs to pass to the scheduled flow"
     )
     @PluginProperty(dynamic = true)
     private Map<String, Object> inputs;
 
     @Schema(
-        title = "The maximum delay that is accepted.",
+        title = "The maximum delay that is accepted",
         description = "If the scheduled execution didn't start after this delay (e.g. due to infrastructure issues), the execution will be skipped."
     )
     @PluginProperty
@@ -228,7 +249,7 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
     private Map<String, Object> backfill;
 
     @Schema(
-        title = "What to do in case of missed schedules",
+        title = "Action to take in the case of missed schedules",
         description = "`ALL` will recover all missed schedules, `LAST`  will only recovered the last missing one, `NONE` will not recover any missing schedule.\n" +
             "The default is `ALL` unless a different value is configured using the global plugin configuration."
     )
@@ -337,13 +358,14 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
         RunContext runContext = conditionContext.getRunContext();
         ExecutionTime executionTime = this.executionTime();
         ZonedDateTime currentDateTimeExecution = convertDateTime(triggerContext.getDate());
-        Backfill backfill = triggerContext.getBackfill();
+
+        final Backfill backfill = triggerContext.getBackfill();
 
         if (backfill != null) {
             if (backfill.getPaused()) {
                 return Optional.empty();
             }
-            currentDateTimeExecution = backfill.getCurrentDate();
+            currentDateTimeExecution = convertDateTime(backfill.getCurrentDate());
         }
 
         Output scheduleDates = this.scheduleDates(executionTime, currentDateTimeExecution).orElse(null);
@@ -352,7 +374,14 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
             return Optional.empty();
         }
 
-        ZonedDateTime next = scheduleDates.getDate();
+        final ZonedDateTime next = scheduleDates.getDate();
+
+        // If the trigger is evaluated for 'back-fill', we have to make sure
+        // that 'current-date' is strictly after the next execution date for an execution to be eligible.
+        if (backfill != null && currentDateTimeExecution.isBefore(next)) {
+            // Otherwise, skip the execution.
+            return Optional.empty();
+        }
 
         // we are in the future don't allow
         // No use case, just here for prevention but it should never happen
@@ -409,13 +438,6 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
             variables,
             Optional.empty()
         );
-
-       execution = execution.toBuilder()
-            // keep to avoid breaking compatibility
-            .variables(ImmutableMap.of(
-                "schedule", execution.getTrigger().getVariables()
-            ))
-            .build();
 
        return Optional.of(execution);
     }
@@ -601,11 +623,11 @@ public class Schedule extends AbstractTrigger implements Schedulable, TriggerOut
         @NotNull
         private ZonedDateTime date;
 
-        @Schema(title = "The date of the next schedule.")
+        @Schema(title = "The date of the next schedule")
         @NotNull
         private ZonedDateTime next;
 
-        @Schema(title = "The date of the previous schedule.")
+        @Schema(title = "The date of the previous schedule")
         @NotNull
         private ZonedDateTime previous;
     }

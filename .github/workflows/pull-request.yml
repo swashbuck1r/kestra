@@ -1,0 +1,57 @@
+name: Pull Request Workflow
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-pr
+  cancel-in-progress: true
+
+jobs:
+  file-changes:
+    if: ${{ github.event.pull_request.draft == false }}
+    name: File changes detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      ui: ${{ steps.changes.outputs.ui }}
+      translations: ${{ steps.changes.outputs.translations }}
+      backend: ${{ steps.changes.outputs.backend }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            ui:
+              - 'ui/**'
+            backend:
+              - '!{ui,.github}/**'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  frontend:
+    name: Frontend - Tests
+    needs: [file-changes]
+    if: "needs.file-changes.outputs.ui == 'true'"
+    uses: kestra-io/actions/.github/workflows/kestra-oss-frontend-tests.yml@main
+    secrets:
+      GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  backend:
+    name: Backend - Tests
+    needs: file-changes
+    if: "needs.file-changes.outputs.backend == 'true'"
+    uses: kestra-io/actions/.github/workflows/kestra-oss-backend-tests.yml@main
+    secrets:
+      GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+
+  e2e-tests:
+    name: E2E - Tests
+    uses: kestra-io/actions/.github/workflows/kestra-oss-e2e-tests.yml@main
+
+  generate-pull-request-docker-image:
+    name: Generate PR docker image
+    uses: kestra-io/actions/.github/workflows/kestra-oss-pullrequest-publish-docker.yml@main

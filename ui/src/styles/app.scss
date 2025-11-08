@@ -1,7 +1,7 @@
 @use "@kestra-io/ui-libs/src/scss/variables.scss" as global-var;
 @use 'element-plus/theme-chalk/src/mixins/mixins' as mixin;
 
-@use "@kestra-io/ui-libs/src/scss/app.scss";
+@use "@kestra-io/ui-libs/style.css";
 
 // element-plus
 @use "layout/element-plus-overload";
@@ -21,6 +21,8 @@
     $indigo: global-var.$indigo
 );
 
+@use "components/sidebar-menu";
+
 html, body, #app, #app-container {
     height: 100%;
 }
@@ -34,46 +36,38 @@ html {
     }
 
     &.menu-collapsed {
-        #{--offset-from-menu}: var(--spacer);
+        #{--offset-from-menu}: 1rem;
     }
 
     &.menu-not-collapsed {
-        #{--offset-from-menu}: var(--spacer);
+        #{--offset-from-menu}: 1rem;
         @include mixin.res(lg) {
-            #{--offset-from-menu}: calc(var(--spacer) * 4);
+            #{--offset-from-menu}: 4rem;
         }
     }
 }
 
 * > {
     ::-webkit-scrollbar {
-        width: 0.5rem;
-        height: 0.5rem;
+        width: 15px !important;
+
+        &:horizontal {
+            height: 15px !important;
+        }
     }
 
     ::-webkit-scrollbar-track {
-        background: var(--bs-gray-200);
+        background: var(--ks-background-body) !important;
     }
 
     ::-webkit-scrollbar-thumb {
-        background: var(--bs-gray-300);
-        border-radius: var(--el-border-radius);
-
-        &:hover {
-            background: var(--bs-gray-400);
-        }
+        background: var(--ks-border-primary) !important;
+        border-radius: 8px !important;
+        border: 4px solid var(--ks-background-body) !important;
     }
-}
 
-html.dark {
-    * > {
-        ::-webkit-scrollbar-thumb {
-            background: var(--bs-gray-400);
-
-            &:hover {
-                background: var(--bs-gray-500);
-            }
-        }
+    ::-webkit-scrollbar-corner {
+        background: var(--ks-background-body) !important;
     }
 }
 
@@ -91,7 +85,7 @@ main {
         margin: 24px 0;
         min-width: 100%;
         transition: padding 0.3s ease;
-        padding: 0 32px;
+        padding: 0 24px;
 
         &.full-height {
             flex: 1;
@@ -128,7 +122,7 @@ main {
     .el-button.status-#{$key} {
         cursor: default;
         border: 0.5px solid $value;
-        background: var(--bs-white);
+        background: var(--ks-background-card);
 
         .material-design-icon {
             color: $value;
@@ -168,5 +162,76 @@ html.full-screen {
             justify-content: center;
         }
 
+    }
+}
+
+// setup non color CSS variables
+:root{
+    --el-box-shadow: $box-shadow;
+    --el-box-shadow-light: $box-shadow-sm;
+    --el-box-shadow-lighter: $box-shadow-sm;
+    --el-box-shadow-dark: $box-shadow-lg;
+
+    --el-transition-duration: 0.2s;
+    --el-transition-duration-fast: 0.2s;
+    --top-navbar-height: 79px;
+    #{--menu-width}: global-var.$menu-width;
+    #{--menu-collapsed-width}: 65px;
+    #{--spacer}: global-var.$spacer;
+
+    #{--font-size-xs}: global-var.$font-size-xs;
+    #{--font-size-sm}: global-var.$font-size-sm;
+    #{--font-size-base}: global-var.$font-size-base;
+    #{--font-size-lg}: global-var.$font-size-lg;
+}
+
+body{
+    background-color: var(--ks-background-body);
+}
+
+.no-code-skeleton{
+    color: var(--ks-content-secondary);
+    background-color: var(--ks-background-card);
+    width: 100%;
+    border-radius: 4px;
+    padding: 0 .5rem;
+    // slowly appearing grey background animation
+    animation: skeleton-loading 6s 1;
+    position: relative;
+    &:before{
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        background-image: linear-gradient(110deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, .1) 35%, rgba(255, 255, 255, 0) 75%, rgba(255, 255, 255, 0) 100%);
+        background-size: 200% 200%;
+        background-repeat: no-repeat;
+        background-position: 0 0;
+        opacity: 0.7;
+        border-radius: 4px;
+        animation: skeleton-animation 3s infinite;
+        height: 32px;
+    }
+}
+
+@keyframes skeleton-animation {
+    0% {
+        background-position: -55% -30%;
+    }
+    100% {
+        background-position: 185% 100%;
+    }
+}
+
+@keyframes skeleton-loading {
+    0% {
+        opacity:0;
+    }
+    40% {
+        opacity:0;
+    }
+    100% {
+        opacity:.7;
     }
 }

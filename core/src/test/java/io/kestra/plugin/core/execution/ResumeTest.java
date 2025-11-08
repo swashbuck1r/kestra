@@ -1,10 +1,11 @@
 package io.kestra.plugin.core.execution;
 
+import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.junit.annotations.LoadFlows;
 import io.kestra.core.models.executions.Execution;
-import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.repositories.ExecutionRepositoryInterface;
-import io.kestra.core.runners.AbstractMemoryRunnerTest;
+import io.kestra.core.runners.TestRunnerUtils;
 import io.kestra.core.utils.Await;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
@@ -12,25 +13,30 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.Map;
 
-import static io.kestra.core.utils.Rethrow.throwRunnable;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.is;
+import static io.kestra.core.tenant.TenantService.MAIN_TENANT;
+import static org.assertj.core.api.Assertions.assertThat;
 
-class ResumeTest extends AbstractMemoryRunnerTest {
+@KestraTest(startRunner = true)
+class ResumeTest {
+
+    @Inject
+    private TestRunnerUtils runnerUtils;
+
     @Inject
     private ExecutionRepositoryInterface executionRepository;
 
     @Test
+    @LoadFlows({"flows/valids/pause-test.yaml",
+        "flows/valids/resume-execution.yaml"})
     void resume() throws Exception {
-        Execution pause = runnerUtils.runOneUntilPaused(null, "io.kestra.tests", "pause");
+        Execution pause = runnerUtils.runOneUntilPaused(MAIN_TENANT, "io.kestra.tests", "pause-test");
         String pauseId = pause.getId();
 
-        Execution resume = runnerUtils.runOne(null, "io.kestra.tests", "resume-execution", null, (flow, execution) -> Map.of("executionId", pauseId));
-        assertThat(resume.getState().getCurrent(), is(State.Type.SUCCESS));
+        Execution resume = runnerUtils.runOne(MAIN_TENANT, "io.kestra.tests", "resume-execution", null, (flow, execution) -> Map.of("executionId", pauseId));
+        assertThat(resume.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
 
         Await.until(
-            () -> executionRepository.findById(null, pauseId).orElseThrow().getState().getCurrent().isTerminated(),
+            () -> executionRepository.findById(MAIN_TENANT, pauseId).orElseThrow().getState().getCurrent().isTerminated(),
             Duration.ofMillis(100),
             Duration.ofSeconds(5)
         );

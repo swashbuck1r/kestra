@@ -14,6 +14,7 @@ import java.util.function.Predicate;
  * Service interface for accessing the files attached to a namespace (a.k.a., Namespace Files).
  */
 public interface Namespace {
+    String NAMESPACE_FILE_SCHEME = "nsfile";
 
     /**
      * Gets the current namespace.
@@ -21,6 +22,13 @@ public interface Namespace {
      * @return the current namespace.
      */
     String namespace();
+
+    /**
+     * Gets the current tenantId.
+     *
+     * @return the current tenantId.
+     */
+    String tenantId();
 
     /**
      * Gets the URIs of all namespace files for the contextual namespace.
@@ -118,6 +126,16 @@ public interface Namespace {
     }
 
     /**
+     * Deletes namespaces directories at the given path.
+     *
+     * @param file the {@link NamespaceFile} to be deleted.
+     * @throws IOException if an error happens while performing the delete operation.
+     */
+    default boolean deleteDirectory(NamespaceFile file) throws IOException {
+        return delete(Path.of(file.path()));
+    }
+
+    /**
      * Deletes any namespaces files at the given path.
      *
      * @param path the path to be deleted.
@@ -125,6 +143,21 @@ public interface Namespace {
      * @throws IOException if an error happens while performing the delete operation.
      */
     boolean delete(Path path) throws IOException;
+
+    /**
+     * Checks if a directory is empty.
+     *
+     * @param path the directory path to check
+     * @return true if the directory is empty or doesn't exist, false otherwise
+     * @throws IOException if an error occurs while checking the directory
+     */
+    default boolean isDirectoryEmpty(String path) throws IOException {
+        List<NamespaceFile> files = findAllFilesMatching(
+            List.of(path + "/**"),
+            List.of()
+        );
+        return files.isEmpty();
+    }
 
     enum Conflicts {
         OVERWRITE,

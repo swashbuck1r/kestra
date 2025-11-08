@@ -1,5 +1,6 @@
 package io.kestra.plugin.core.flow;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
@@ -9,6 +10,7 @@ import io.kestra.core.models.executions.NextTaskRun;
 import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.hierarchies.GraphCluster;
 import io.kestra.core.models.hierarchies.RelationType;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.*;
 import io.kestra.core.runners.FlowableUtils;
 import io.kestra.core.runners.RunContext;
@@ -23,7 +25,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 
@@ -35,7 +36,7 @@ import java.util.stream.Stream;
 @NoArgsConstructor
 @DagTaskValidation
 @Schema(
-    title = "Create a directed acyclic graph (DAG) of tasks without explicitly specifying the order in which the tasks need to run.",
+    title = "Create a DAG of tasks without explicitly specifying the order in which the tasks must run.",
     description = "List your tasks and their dependencies, and Kestra will figure out the execution sequence.\n" +
         "Each task can only depend on other tasks from the DAG task.\n" +
         "For technical reasons, low-code interaction via UI forms is disabled for now when using this task."
@@ -90,11 +91,10 @@ public class Dag extends Task implements FlowableTask<VoidOutput> {
     @NotNull
     @Builder.Default
     @Schema(
-        title = "Number of concurrent parallel tasks that can be running at any point in time.",
+        title = "Number of concurrent parallel tasks that can be running at any point in time",
         description = "If the value is `0`, no concurrency limit exists for the tasks in a DAG and all tasks that can run in parallel will start at the same time."
     )
-    @PluginProperty
-    private final Integer concurrent = 0;
+    private final Property<Integer> concurrent = Property.ofValue(0);
 
     @Valid
     @NotEmpty
@@ -103,6 +103,15 @@ public class Dag extends Task implements FlowableTask<VoidOutput> {
     @Valid
     @PluginProperty
     protected List<Task> errors;
+
+    @Valid
+    @JsonProperty("finally")
+    @Getter(AccessLevel.NONE)
+    protected List<Task> _finally;
+
+    public List<Task> getFinally() {
+        return this._finally;
+    }
 
     @Override
     public GraphCluster tasksTree(Execution execution, TaskRun taskRun, List<String> parentValues) throws IllegalVariableEvaluationException {
@@ -114,6 +123,7 @@ public class Dag extends Task implements FlowableTask<VoidOutput> {
             subGraph,
             this.getTasks(),
             this.errors,
+            this._finally,
             taskRun,
             execution
         );
@@ -124,7 +134,7 @@ public class Dag extends Task implements FlowableTask<VoidOutput> {
     private void controlTask() throws IllegalVariableEvaluationException {
         List<String> dagCheckNotExistTasks = this.dagCheckNotExistTask(this.tasks);
         if (!dagCheckNotExistTasks.isEmpty()) {
-            throw new IllegalVariableEvaluationException("Some task doesn't exists on task '" + this.id + "': " +  String.join(", ", dagCheckNotExistTasks));
+            throw new IllegalVariableEvaluationException("Some task doesn't exist on task '" + this.id + "': " +  String.join(", ", dagCheckNotExistTasks));
         }
 
         ArrayList<String> cyclicDependenciesTasks = this.dagCheckCyclicDependencies(this.tasks);
@@ -138,7 +148,10 @@ public class Dag extends Task implements FlowableTask<VoidOutput> {
         return Stream
             .concat(
                 this.tasks != null ? this.tasks.stream().map(DagTask::getTask) : Stream.empty(),
-                this.errors != null ? this.errors.stream() : Stream.empty()
+                Stream.concat(
+                    this.errors != null ? this.errors.stream() : Stream.empty(),
+                    this._finally != null ? this._finally.stream() : Stream.empty()
+                )
             )
             .toList();
     }
@@ -156,8 +169,9 @@ public class Dag extends Task implements FlowableTask<VoidOutput> {
             execution,
             this.childTasks(runContext, parentTaskRun),
             FlowableUtils.resolveTasks(this.errors, parentTaskRun),
+            FlowableUtils.resolveTasks(this._finally, parentTaskRun),
             parentTaskRun,
-            this.concurrent,
+            runContext.render(this.concurrent).as(Integer.class).orElseThrow(),
             this.tasks
         );
     }
@@ -224,14 +238,14 @@ public class Dag extends Task implements FlowableTask<VoidOutput> {
     public static class DagTask {
         @NotNull
         @Schema(
-            title = "The task within the DAG."
+            title = "The task within the DAG"
         )
         @PluginProperty
         private Task task;
 
         @PluginProperty
         @Schema(
-            title = "The list of task IDs that should have been successfully executed before starting this task."
+            title = "The list of task IDs that should have been successfully executed before starting this task"
         )
         private List<String> dependsOn;
     }

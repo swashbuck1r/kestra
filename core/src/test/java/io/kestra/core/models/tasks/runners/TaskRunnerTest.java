@@ -1,6 +1,7 @@
 package io.kestra.core.models.tasks.runners;
 
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.micronaut.context.ApplicationContext;
@@ -14,8 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @KestraTest
 public class TaskRunnerTest {
@@ -30,7 +30,7 @@ public class TaskRunnerTest {
 
     @Test
     void additionalVarsAndEnv() throws IllegalVariableEvaluationException {
-        TaskRunner taskRunner = new TaskRunnerAdditional(true);
+        TaskRunner<?> taskRunner = new TaskRunnerAdditional(true);
         TaskCommands taskCommands = new TaskCommandsAdditional();
 
         Map<String, Object> contextVariables = Map.of(
@@ -46,36 +46,36 @@ public class TaskRunnerTest {
         );
         RunContext runContext = runContextFactory.of(contextVariables);
 
-        assertThat(taskRunner.additionalVars(runContext, taskCommands), is(Map.of(
+        assertThat(taskRunner.additionalVars(runContext, taskCommands)).isEqualTo(Map.of(
             ScriptService.VAR_BUCKET_PATH, contextVariables.get("runnerBucketPath"),
             ScriptService.VAR_WORKING_DIR, TaskRunnerAdditional.RUNNER_WORKING_DIR,
             ScriptService.VAR_OUTPUT_DIR, TaskRunnerAdditional.RUNNER_OUTPUT_DIR,
             contextVariables.get("runnerAdditionalVarKey"), contextVariables.get("runnerAdditionalVarValue"),
             contextVariables.get("scriptCommandsAdditionalVarKey"), contextVariables.get("scriptCommandsAdditionalVarValue"),
             ADDITIONAL_VAR_KEY, TaskRunnerAdditional.ADDITIONAL_VAR_VALUE
-        )));
+        ));
 
-        assertThat(taskRunner.env(runContext, taskCommands), is(Map.of(
+        assertThat(taskRunner.env(runContext, taskCommands)).isEqualTo(Map.of(
             ScriptService.ENV_BUCKET_PATH, TaskRunnerAdditional.OVERRIDEN_ENV_BUCKET_PATH,
             ScriptService.ENV_WORKING_DIR, TaskRunnerAdditional.OVERRIDEN_ENV_WORKING_DIR,
             ScriptService.ENV_OUTPUT_DIR, TaskRunnerAdditional.OVERRIDEN_ENV_OUTPUT_DIR,
             contextVariables.get("runnerAdditionalEnvKey"), contextVariables.get("runnerAdditionalEnvValue"),
             contextVariables.get("scriptCommandsAdditionalEnvKey"), contextVariables.get("scriptCommandsAdditionalEnvValue"),
             ADDITIONAL_ENV_KEY, TaskRunnerAdditional.ADDITIONAL_ENV_VALUE
-        )));
+        ));
 
         taskRunner = new TaskRunnerAdditional(false);
-        assertThat(taskRunner.env(runContext, taskCommands), is(Map.of(
+        assertThat(taskRunner.env(runContext, taskCommands)).isEqualTo(Map.of(
             ScriptService.ENV_BUCKET_PATH, contextVariables.get("runnerBucketPath"),
             ScriptService.ENV_WORKING_DIR, TaskRunnerAdditional.RUNNER_WORKING_DIR,
             ScriptService.ENV_OUTPUT_DIR, TaskRunnerAdditional.RUNNER_OUTPUT_DIR,
             contextVariables.get("runnerAdditionalEnvKey"), contextVariables.get("runnerAdditionalEnvValue"),
             contextVariables.get("scriptCommandsAdditionalEnvKey"), contextVariables.get("scriptCommandsAdditionalEnvValue"),
             ADDITIONAL_ENV_KEY, TaskRunnerAdditional.ADDITIONAL_ENV_VALUE
-        )));
+        ));
     }
 
-    private static class TaskRunnerAdditional extends TaskRunner {
+    private static class TaskRunnerAdditional extends TaskRunner<TaskRunnerDetailResult> {
 
         public static final String RUNNER_BUCKET_PATH = "{{runnerBucketPath}}";
         public static final String RUNNER_WORKING_DIR = "runnerWorkingDir";
@@ -97,7 +97,7 @@ public class TaskRunnerTest {
         }
 
         @Override
-        public RunnerResult run(RunContext runContext, TaskCommands taskCommands, List<String> filesToDownload) {
+        public TaskRunnerResult<TaskRunnerDetailResult> run(RunContext runContext, TaskCommands taskCommands, List<String> filesToDownload) {
             return null;
         }
 
@@ -149,7 +149,17 @@ public class TaskRunnerTest {
         }
 
         @Override
-        public List<String> getCommands() {
+        public Property<List<String>> getInterpreter() {
+            return null;
+        }
+
+        @Override
+        public Property<List<String>> getBeforeCommands() {
+            return null;
+        }
+
+        @Override
+        public Property<List<String>> getCommands() {
             return null;
         }
 

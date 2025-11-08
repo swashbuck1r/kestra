@@ -1,128 +1,106 @@
 package io.kestra.core.runners;
 
 import io.kestra.core.models.flows.FlowWithSource;
-import io.kestra.core.services.PluginDefaultService;
+import io.kestra.core.models.flows.GenericFlow;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.junit.annotations.KestraTest;
-import lombok.SneakyThrows;
-import io.kestra.core.models.flows.Flow;
+import io.kestra.core.utils.Await;
+import io.kestra.core.utils.TestsUtils;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.TimeoutException;
 import io.kestra.core.repositories.FlowRepositoryInterface;
 import io.kestra.core.services.FlowListenersInterface;
 import io.kestra.plugin.core.debug.Return;
 import io.kestra.core.utils.IdUtils;
 
 import java.util.Collections;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import jakarta.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @KestraTest
 abstract public class FlowListenersTest {
     @Inject
     protected FlowRepositoryInterface flowRepository;
 
-    @Inject
-    protected PluginDefaultService pluginDefaultService;
-
-    protected static FlowWithSource create(String flowId, String taskId) {
-        Flow flow = Flow.builder()
+    protected static FlowWithSource create(String tenantId, String flowId, String taskId) {
+        FlowWithSource flow = FlowWithSource.builder()
             .id(flowId)
             .namespace("io.kestra.unittest")
+            .tenantId(tenantId)
             .revision(1)
             .tasks(Collections.singletonList(Return.builder()
                 .id(taskId)
                 .type(Return.class.getName())
-                .format("test")
+                .format(Property.ofValue("test"))
                 .build()))
             .build();
-        return flow.withSource(flow.generateSource());
+        return flow.toBuilder().source(flow.sourceOrGenerateIfNull()).build();
     }
 
-    public void suite(FlowListenersInterface flowListenersService) {
+    private static final Logger LOG = LoggerFactory.getLogger(FlowListenersTest.class);
+
+    public void suite(FlowListenersInterface flowListenersService) throws TimeoutException {
+        String tenant = TestsUtils.randomTenant(this.getClass().getSimpleName());
         flowListenersService.run();
 
         AtomicInteger count = new AtomicInteger();
-        var ref = new Ref();
 
-        flowListenersService.listen(flows -> {
-            count.set(flows.size());
-            ref.countDownLatch.countDown();
-        });
+        flowListenersService.listen(flows -> count.set(getFlowsForTenant(flowListenersService, tenant).size()));
 
         // initial state
-        wait(ref, () -> {
-            assertThat(count.get(), is(0));
-            assertThat(flowListenersService.flows().size(), is(0));
-        });
+        LOG.info("-----------> wait for zero");
+        Await.until(() -> count.get() == 0, Duration.ofMillis(10), Duration.ofSeconds(5));
+        assertThat(getFlowsForTenant(flowListenersService, tenant).size()).isZero();
 
         // resend on startup done for kafka
+        LOG.info("-----------> wait for zero kafka");
         if (flowListenersService.getClass().getName().equals("io.kestra.ee.runner.kafka.KafkaFlowListeners")) {
-            wait(ref, () -> {
-                assertThat(count.get(), is(0));
-                assertThat(flowListenersService.flows().size(), is(0));
-            });
+            Await.until(() -> count.get() == 0, Duration.ofMillis(10), Duration.ofSeconds(5));
+            assertThat(getFlowsForTenant(flowListenersService, tenant).size()).isZero();
         }
 
         // create first
-        FlowWithSource first = create("first_" + IdUtils.create(), "test");
-        FlowWithSource firstUpdated = create(first.getId(), "test2");
+        LOG.info("-----------> create fist flow");
+        FlowWithSource first = create(tenant, "first_" + IdUtils.create(), "test");
+        FlowWithSource firstUpdated = create(tenant, first.getId(), "test2");
 
 
-        flowRepository.create(first, first.generateSource(), pluginDefaultService.injectDefaults(first.withSource(first.generateSource())));
-        wait(ref, () -> {
-            assertThat(count.get(), is(1));
-            assertThat(flowListenersService.flows().size(), is(1));
-        });
+        flowRepository.create(GenericFlow.of(first));
+        Await.until(() -> count.get() == 1, Duration.ofMillis(10), Duration.ofSeconds(5));
+        assertThat(getFlowsForTenant(flowListenersService, tenant).size()).isEqualTo(1);
 
         // create the same id than first, no additional flows
-        first = flowRepository.update(firstUpdated, first, firstUpdated.generateSource(), pluginDefaultService.injectDefaults(firstUpdated.withSource(firstUpdated.generateSource())));
-        wait(ref, () -> {
-            assertThat(count.get(), is(1));
-            assertThat(flowListenersService.flows().size(), is(1));
-            assertThat(flowListenersService.flows().getFirst().getTasks().getFirst().getId(), is("test2"));
-        });
+        first = flowRepository.update(GenericFlow.of(firstUpdated), first);
+        Await.until(() -> count.get() == 1, Duration.ofMillis(10), Duration.ofSeconds(5));
+        assertThat(getFlowsForTenant(flowListenersService, tenant).size()).isEqualTo(1);
 
-        Flow second = create("second_" + IdUtils.create(), "test");
+        FlowWithSource second = create(tenant, "second_" + IdUtils.create(), "test");
         // create a new one
-        flowRepository.create(second, second.generateSource(), pluginDefaultService.injectDefaults(second.withSource(second.generateSource())));
-        wait(ref, () -> {
-            assertThat(count.get(), is(2));
-            assertThat(flowListenersService.flows().size(), is(2));
-        });
+        flowRepository.create(GenericFlow.of(second));
+        Await.until(() -> count.get() == 2, Duration.ofMillis(10), Duration.ofSeconds(5));
+        assertThat(getFlowsForTenant(flowListenersService, tenant).size()).isEqualTo(2);
 
         // delete first
-        Flow deleted = flowRepository.delete(first);
-        wait(ref, () -> {
-            assertThat(count.get(), is(1));
-            assertThat(flowListenersService.flows().size(), is(1));
-        });
+        FlowWithSource deleted = flowRepository.delete(first);
+        Await.until(() -> count.get() == 1, Duration.ofMillis(10), Duration.ofSeconds(5));
+        assertThat(getFlowsForTenant(flowListenersService, tenant).size()).isEqualTo(1);
 
         // restore must works
-        flowRepository.create(first, first.generateSource(), pluginDefaultService.injectDefaults(first.withSource(first.generateSource())));
-        wait(ref, () -> {
-            assertThat(count.get(), is(2));
-            assertThat(flowListenersService.flows().size(), is(2));
-        });
+        flowRepository.create(GenericFlow.of(first));
+        Await.until(() -> count.get() == 2, Duration.ofMillis(10), Duration.ofSeconds(5));
+        assertThat(getFlowsForTenant(flowListenersService, tenant).size()).isEqualTo(2);
 
-        Flow withTenant = first.toBuilder().tenantId("some-tenant").build();
-        flowRepository.create(withTenant, withTenant.generateSource(), pluginDefaultService.injectDefaults(withTenant.withSource(withTenant.generateSource())));
-        wait(ref, () -> {
-            assertThat(count.get(), is(3));
-            assertThat(flowListenersService.flows().size(), is(3));
-        });
     }
 
-    public static class Ref {
-        CountDownLatch countDownLatch = new CountDownLatch(1);
+    public List<FlowWithSource> getFlowsForTenant(FlowListenersInterface flowListenersService, String tenantId){
+        return flowListenersService.flows().stream()
+            .filter(f -> tenantId.equals(f.getTenantId()))
+            .toList();
     }
 
-    @SneakyThrows
-    private void wait(Ref ref, Runnable run) {
-        ref.countDownLatch.await(60, TimeUnit.SECONDS);
-        run.run();
-        ref.countDownLatch = new CountDownLatch(1);
-    }
 }

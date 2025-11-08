@@ -5,20 +5,23 @@ import io.kestra.core.models.executions.LogEntry;
 import io.kestra.core.models.executions.MetricEntry;
 import io.kestra.core.queues.QueueFactoryInterface;
 import io.kestra.core.queues.QueueInterface;
+import io.kestra.core.queues.QueueService;
 import io.kestra.core.repositories.LogRepositoryInterface;
 import io.kestra.core.repositories.MetricRepositoryInterface;
 import io.kestra.core.repositories.SaveRepositoryInterface;
 import io.kestra.core.runners.Indexer;
-import io.kestra.core.runners.IndexerInterface;
 import io.kestra.core.server.ServiceStateChangeEvent;
+import io.kestra.core.server.ServiceType;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.ListUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.kestra.core.services.SkipExecutionService;
 import io.micronaut.context.event.ApplicationEventPublisher;
 import jakarta.annotation.PreDestroy;
 import jakarta.inject.Inject;
@@ -34,7 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Singleton
 @JdbcRunnerEnabled
-public class JdbcIndexer implements IndexerInterface {
+public class JdbcIndexer implements Indexer {
     private final LogRepositoryInterface logRepository;
     private final JdbcQueue<LogEntry> logQueue;
 
@@ -47,6 +50,11 @@ public class JdbcIndexer implements IndexerInterface {
     private final AtomicReference<ServiceState> state = new AtomicReference<>();
     private final ApplicationEventPublisher<ServiceStateChangeEvent> eventPublisher;
 
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    private final SkipExecutionService skipExecutionService;
+    private final QueueService queueService;
+
     @Inject
     public JdbcIndexer(
         LogRepositoryInterface logRepository,
@@ -54,7 +62,9 @@ public class JdbcIndexer implements IndexerInterface {
         MetricRepositoryInterface metricRepositor,
         @Named(QueueFactoryInterface.METRIC_QUEUE) QueueInterface<MetricEntry> metricQueue,
         MetricRegistry metricRegistry,
-        ApplicationEventPublisher<ServiceStateChangeEvent> eventPublisher
+        ApplicationEventPublisher<ServiceStateChangeEvent> eventPublisher,
+        SkipExecutionService skipExecutionService,
+        QueueService queueService
     ) {
         this.logRepository = logRepository;
         this.logQueue = (JdbcQueue<LogEntry>) logQueue;
@@ -62,6 +72,8 @@ public class JdbcIndexer implements IndexerInterface {
         this.metricQueue = (JdbcQueue<MetricEntry>) metricQueue;
         this.metricRegistry = metricRegistry;
         this.eventPublisher = eventPublisher;
+        this.skipExecutionService = skipExecutionService;
+        this.queueService = queueService;
 
         setState(ServiceState.CREATED);
     }
@@ -71,6 +83,7 @@ public class JdbcIndexer implements IndexerInterface {
         log.debug("Starting the indexer");
         startQueues();
         setState(ServiceState.RUNNING);
+        log.info("Indexer started");
     }
 
     protected void startQueues() {
@@ -84,15 +97,26 @@ public class JdbcIndexer implements IndexerInterface {
             eithers.stream().filter(either -> either.isRight()).forEach(either -> log.error("unable to deserialize an item: {}", either.getRight().getMessage()));
 
             // then index all correctly deserialized items
-            List<T> items = eithers.stream().filter(either -> either.isLeft()).map(either -> either.getLeft()).toList();
+            List<T> items = eithers.stream()
+                .filter(either -> either.isLeft())
+                .map(either -> either.getLeft())
+                .filter(it -> {
+                    if (skipExecutionService.skipIndexerRecord(queueService.key(it))) {
+                        log.warn("Skipping indexer record for key: {}", queueService.key(it));
+                        return false;
+                    }
+                    return true;
+                })
+                .toList();
+
             if (!ListUtils.isEmpty(items)) {
                 String itemClassName = items.getFirst().getClass().getName();
-                this.metricRegistry.counter(MetricRegistry.METRIC_INDEXER_REQUEST_COUNT, "type", itemClassName).increment();
-                this.metricRegistry.counter(MetricRegistry.METRIC_INDEXER_MESSAGE_IN_COUNT, "type", itemClassName).increment(items.size());
+                this.metricRegistry.counter(MetricRegistry.METRIC_INDEXER_REQUEST_COUNT, MetricRegistry.METRIC_INDEXER_REQUEST_COUNT_DESCRIPTION, "type", itemClassName).increment();
+                this.metricRegistry.counter(MetricRegistry.METRIC_INDEXER_MESSAGE_IN_COUNT, MetricRegistry.METRIC_INDEXER_MESSAGE_IN_COUNT_DESCRIPTION, "type", itemClassName).increment(items.size());
 
-                this.metricRegistry.timer(MetricRegistry.METRIC_INDEXER_REQUEST_DURATION, "type", itemClassName).record(() -> {
+                this.metricRegistry.timer(MetricRegistry.METRIC_INDEXER_REQUEST_DURATION, MetricRegistry.METRIC_INDEXER_REQUEST_DURATION_DESCRIPTION, "type", itemClassName).record(() -> {
                     int saved = saveRepositoryInterface.saveBatch(items);
-                    this.metricRegistry.counter(MetricRegistry.METRIC_INDEXER_MESSAGE_OUT_COUNT, "type", itemClassName).increment(saved);
+                    this.metricRegistry.counter(MetricRegistry.METRIC_INDEXER_MESSAGE_OUT_COUNT, MetricRegistry.METRIC_INDEXER_MESSAGE_OUT_COUNT_DESCRIPTION, "type", itemClassName).increment(saved);
                 });
             }
         }));
@@ -122,14 +146,19 @@ public class JdbcIndexer implements IndexerInterface {
     @PreDestroy
     @Override
     public void close() {
-        setState(ServiceState.TERMINATING);
-        this.receiveCancellations.forEach(Runnable::run);
-        try {
-            stopQueue();
-            setState(ServiceState.TERMINATED_GRACEFULLY);
-        } catch (IOException e) {
-            log.error("Failed to close the queue", e);
-            setState(ServiceState.TERMINATED_FORCED);
+        if (closed.compareAndSet(false, true)) {
+            setState(ServiceState.TERMINATING);
+            if (log.isDebugEnabled()) {
+                log.debug("Terminating");
+            }
+            this.receiveCancellations.forEach(Runnable::run);
+            try {
+                stopQueue();
+                setState(ServiceState.TERMINATED_GRACEFULLY);
+            } catch (IOException e) {
+                log.error("Failed to close the queue", e);
+                setState(ServiceState.TERMINATED_FORCED);
+            }
         }
     }
 

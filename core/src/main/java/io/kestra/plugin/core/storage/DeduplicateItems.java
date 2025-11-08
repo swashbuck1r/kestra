@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
@@ -58,15 +59,14 @@ import java.util.Map;
 public class DeduplicateItems extends Task implements RunnableTask<DeduplicateItems.Output> {
 
     @Schema(
-        title = "The file to be deduplicated.",
-        description = "Must be a `kestra://` internal storage URI."
+        title = "The file to be deduplicated"
     )
-    @PluginProperty(dynamic = true)
     @NotNull
-    private String from;
+    @PluginProperty(internalStorageURI = true)
+    private Property<String> from;
 
     @Schema(
-        title = "The 'pebble' expression to be used for extracting the deduplication key from each item.",
+        title = "The Pebble expression to extract the deduplication key from each item",
         description = "The 'pebble' expression can be used for constructing a composite key."
     )
     @PluginProperty
@@ -79,7 +79,7 @@ public class DeduplicateItems extends Task implements RunnableTask<DeduplicateIt
     @Override
     public Output run(RunContext runContext) throws Exception {
 
-        URI from = new URI(runContext.render(this.from));
+        URI from = new URI(runContext.render(this.from).as(String.class).orElseThrow());
 
         final PebbleFieldExtractor keyExtractor = getKeyExtractor(runContext);
 
@@ -144,22 +144,22 @@ public class DeduplicateItems extends Task implements RunnableTask<DeduplicateIt
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The deduplicated file URI."
+            title = "The deduplicated file URI"
         )
         private final URI uri;
 
         @Schema(
-            title = "The number of distinct keys observed by the task."
+            title = "The number of distinct keys observed by the task"
         )
         private final Long numKeys;
 
         @Schema(
-            title = "The total number of items that was processed by the task."
+            title = "The total number of items that was processed by the task"
         )
         private final Long processedItemsTotal;
 
         @Schema(
-            title = "The total number of items that was dropped by the task."
+            title = "The total number of items that was dropped by the task"
         )
         private final Long droppedItemsTotal;
     }

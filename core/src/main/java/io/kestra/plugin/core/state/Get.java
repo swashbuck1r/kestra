@@ -2,7 +2,7 @@ package io.kestra.plugin.core.state;
 
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -18,7 +18,7 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Get a state from the state store."
+    title = "Get a state from the state store (Deprecated, use KV store instead)."
 )
 @Plugin(
     examples = {
@@ -42,13 +42,13 @@ import java.util.Map;
     },
     aliases = "io.kestra.core.tasks.states.Get"
 )
+@Deprecated(since = "1.1.0", forRemoval = true)
 public class Get extends AbstractState implements RunnableTask<Get.Output> {
     @Schema(
         title = "Raise an error if the state file is not found."
     )
-    @PluginProperty(dynamic = true)
     @Builder.Default
-    private final Boolean errorOnMissing = false;
+    private final Property<Boolean> errorOnMissing = Property.ofValue(false);
 
     @Override
     public Output run(RunContext runContext) throws Exception {
@@ -57,7 +57,7 @@ public class Get extends AbstractState implements RunnableTask<Get.Output> {
         try {
             data = this.get(runContext);
         } catch (FileNotFoundException e) {
-            if (this.errorOnMissing) {
+            if (Boolean.TRUE.equals(runContext.render(this.errorOnMissing).as(Boolean.class).orElseThrow())) {
                 throw e;
             }
 
@@ -74,12 +74,12 @@ public class Get extends AbstractState implements RunnableTask<Get.Output> {
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The count of properties found in the state."
+            title = "The count of properties found in the state"
         )
         private final int count;
 
         @Schema(
-            title = "The data extracted from the state."
+            title = "The data extracted from the state"
         )
         private final Map<String, Object> data;
     }

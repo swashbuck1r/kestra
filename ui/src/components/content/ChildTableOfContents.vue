@@ -1,7 +1,10 @@
-<script>
+<script lang="ts">
     import {h, defineComponent} from "vue";
-    import {useStore} from "vuex";
+    import {useDocStore} from "../../stores/doc";
     import {RouterLink, useRoute} from "vue-router";
+
+    interface DataItem {children: any[], path: string}
+
 
     export default defineComponent({
         props: {
@@ -13,21 +16,28 @@
                 type: Number,
                 default: undefined
             },
+            renderLink: {
+                type: Function,
+                default: (link:{
+                    path:string,
+                    title:string
+                }) => h(RouterLink, {to: {path: "/" + link.path}}, () => link.title)
+            },
         },
-        async setup(props) {
-            const store = useStore();
+        async setup(props, ctx) {
+            const docStore = useDocStore();
             const route = useRoute();
 
             let currentPage;
             if (props.pageUrl) {
                 currentPage = props.pageUrl;
             } else {
-                currentPage = route.params.path;
+                currentPage = route.params.path.toString();
             }
 
             currentPage = currentPage?.endsWith("/") ? currentPage.slice(0, -1) : currentPage;
 
-            let childrenWithMetadata = await store.dispatch("doc/children", currentPage);
+            let childrenWithMetadata = await docStore.children(currentPage) as Record<string, any>;
             childrenWithMetadata = Object.fromEntries(Object.entries(childrenWithMetadata).map(([url, metadata]) => [url, {...metadata, path: url}]));
             Object.entries(childrenWithMetadata)
                 .forEach(([url, metadata]) => {
@@ -40,34 +50,27 @@
                 });
 
             const dir = Object.entries(childrenWithMetadata)[0]?.[1]?.children;
-            return {dir};
-        },
 
-        render(ctx) {
-            const {dir, max} = ctx;
-
-            const renderLink = (link) => h(RouterLink, {to: {path: "/" + link.path}}, () => link.title);
-
-            const renderLinks = (data, level) => {
+            const renderLinks = (data: DataItem[], level: number) => {
                 return h(
                     "ul",
                     level ? {"data-level": level} : null,
-                    (data || []).map((link) => {
+                    (data || []).map((link):any => {
                         if (link.children &&
-                            (max === undefined || max <= level) &&
+                            (props.max === undefined || props.max <= level) &&
                             (link.children.length > 1 || link.children.length === 1 && link.children[0].path !== link.path)
                         ) {
-                            return h("li", null, [renderLink(link), renderLinks(link.children, level + 1)]);
+                            return h("li", null, [props.renderLink(link), renderLinks(link.children, level + 1)]);
                         }
 
-                        return h("li", null, renderLink(link));
+                        return h("li", null, props.renderLink(link));
                     })
                 );
             };
 
-            const defaultNode = (data) => renderLinks(data, 0);
+            const defaultNode = (data: DataItem[]) => renderLinks(data, 0);
 
-            return this.$slots?.default ? this.$slots.default({dir, ...this.$attrs}) : defaultNode(dir);
-        }
+            return () => ctx.slots?.default ? ctx.slots.default({dir, ...ctx.attrs}) : defaultNode(dir);
+        },
     });
 </script>

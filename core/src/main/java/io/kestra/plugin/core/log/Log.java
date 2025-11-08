@@ -3,6 +3,7 @@ package io.kestra.plugin.core.log;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.tasks.VoidOutput;
@@ -53,7 +54,7 @@ import static io.kestra.core.utils.Rethrow.throwConsumer;
 )
 public class Log extends Task implements RunnableTask<VoidOutput> {
     @Schema(
-        title = "One or more message(s) to be sent to the backend as logs.",
+        title = "One or more message(s) to be sent to the backend as logs",
         description = "It can be a string or an array of strings.",
         oneOf = {
             String.class,
@@ -65,26 +66,27 @@ public class Log extends Task implements RunnableTask<VoidOutput> {
     private Object message;
 
     @Schema(
-        title = "The log level. If not specified, it defaults to `INFO`."
+        title = "The level on which the message should be logged. Note that this is different from the core `logLevel` property which sets the minimum log level to be persisted in the backend database. The `level` property is used to determine the log level of the message emitted by the Log task, while `logLevel` is used to filter which logs should be stored in the backend. Both properties can be used together to control the log level of the message emitted by the task and the logs that are persisted in the backend. If not specified, the `level` defaults to `INFO`."
     )
     @Builder.Default
-    @PluginProperty
-    private Level level = Level.INFO;
+    private Property<Level> level = Property.ofValue(Level.INFO);
 
     @SuppressWarnings("unchecked")
     @Override
     public VoidOutput run(RunContext runContext) throws Exception {
         Logger logger = runContext.logger();
 
+        var renderedLevel = runContext.render(this.level).as(Level.class).orElseThrow();
+
         if(this.message instanceof String stringValue) {
             String render = runContext.render(stringValue);
-            this.log(logger, this.level, render);
+            this.log(logger, renderedLevel, render);
         } else if (this.message instanceof Collection<?> collectionValue) {
             Collection<String> messages = (Collection<String>) collectionValue;
             messages.forEach(throwConsumer(message -> {
                 String render;
                 render = runContext.render(message);
-                this.log(logger, this.level, render);
+                this.log(logger, renderedLevel, render);
             }));
         } else {
             throw new IllegalArgumentException("Invalid message type '" + this.message.getClass() + "'");
@@ -94,7 +96,7 @@ public class Log extends Task implements RunnableTask<VoidOutput> {
     }
 
     public void log(Logger logger, Level level, String message) {
-        switch (this.level) {
+        switch (level) {
             case TRACE:
                 logger.trace(message);
                 break;
@@ -111,7 +113,7 @@ public class Log extends Task implements RunnableTask<VoidOutput> {
                 logger.error(message);
                 break;
             default:
-                throw new IllegalArgumentException("Invalid log level '" + this.level + "'");
+                throw new IllegalArgumentException("Invalid log level '" + this.level.toString() + "'");
         }
     }
 }

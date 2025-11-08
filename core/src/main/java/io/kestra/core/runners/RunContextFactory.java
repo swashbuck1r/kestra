@@ -1,11 +1,15 @@
 package io.kestra.core.runners;
 
+import static io.kestra.core.tenant.TenantService.MAIN_TENANT;
+
 import com.google.common.annotations.VisibleForTesting;
 import io.kestra.core.metrics.MetricRegistry;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.flows.Flow;
+import io.kestra.core.models.flows.FlowInterface;
 import io.kestra.core.models.flows.Type;
+import io.kestra.core.models.property.PropertyContext;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.triggers.AbstractTrigger;
 import io.kestra.core.plugins.PluginConfigurations;
@@ -16,6 +20,7 @@ import io.kestra.core.storages.StorageContext;
 import io.kestra.core.storages.StorageInterface;
 import io.micronaut.context.ApplicationContext;
 import io.micronaut.context.annotation.Value;
+import io.micronaut.core.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
@@ -36,6 +41,9 @@ public class RunContextFactory {
 
     @Inject
     protected VariableRenderer variableRenderer;
+    
+    @Inject
+    protected SecureVariableRendererFactory secureVariableRendererFactory;
 
     @Inject
     protected StorageInterface storageInterface;
@@ -55,6 +63,14 @@ public class RunContextFactory {
     @Value("${kestra.encryption.secret-key}")
     protected Optional<String> secretKey;
 
+    @Value("${kestra.environment.name}")
+    @Nullable
+    protected String kestraEnvironment;
+
+    @Value("${kestra.url}")
+    @Nullable
+    protected String kestraUrl;
+
     @Inject
     private RunContextLoggerFactory runContextLoggerFactory;
 
@@ -65,38 +81,53 @@ public class RunContextFactory {
     public RunContextInitializer initializer() {
         return applicationContext.getBean(RunContextInitializer.class);
     }
-
-    public RunContext of(Flow flow, Execution execution) {
+    
+    public RunContext of(FlowInterface flow, Execution execution) {
         return of(flow, execution, Function.identity());
     }
+    
+    public RunContext of(FlowInterface flow, Execution execution, boolean decryptVariable) {
+        return of(flow, execution, Function.identity(), decryptVariable);
+    }
 
-    public RunContext of(Flow flow, Execution execution, Function<RunVariables.Builder, RunVariables.Builder> runVariableModifier) {
+    public RunContext of(FlowInterface flow, Execution execution, Function<RunVariables.Builder, RunVariables.Builder> runVariableModifier) {
+        return of(flow, execution, runVariableModifier, true);
+    }
+    
+    public RunContext of(FlowInterface flow, Execution execution, Function<RunVariables.Builder, RunVariables.Builder> runVariableModifier, boolean decryptVariables) {
         RunContextLogger runContextLogger = runContextLoggerFactory.create(execution);
-
+        
+        VariableRenderer variableRenderer = decryptVariables ? this.variableRenderer : secureVariableRendererFactory.createOrGet();
+        
         return newBuilder()
             // Logger
             .withLogger(runContextLogger)
             // Execution
             .withPluginConfiguration(Map.of())
             .withStorage(new InternalStorage(runContextLogger.logger(), StorageContext.forExecution(execution), storageInterface, flowService))
+            .withVariableRenderer(variableRenderer)
             .withVariables(runVariableModifier.apply(
-                newRunVariablesBuilder()
-                    .withFlow(flow)
-                    .withExecution(execution)
-                    .withDecryptVariables(true)
-                    .withSecretInputs(secretInputsFromFlow(flow))
+                    newRunVariablesBuilder()
+                        .withFlow(flow)
+                        .withExecution(execution)
+                        .withDecryptVariables(decryptVariables)
+                        .withSecretInputs(secretInputsFromFlow(flow))
                 )
-                .build(runContextLogger))
+                .build(runContextLogger, PropertyContext.create(variableRenderer)))
             .withSecretInputs(secretInputsFromFlow(flow))
             .build();
     }
 
-    public RunContext of(Flow flow, Task task, Execution execution, TaskRun taskRun) {
+    public RunContext of(FlowInterface flow, Task task, Execution execution, TaskRun taskRun) {
         return this.of(flow, task, execution, taskRun, true);
     }
 
-    public RunContext of(Flow flow, Task task, Execution execution, TaskRun taskRun, boolean decryptVariables) {
-        RunContextLogger runContextLogger = runContextLoggerFactory.create(taskRun, task);
+    public RunContext of(FlowInterface flow, Task task, Execution execution, TaskRun taskRun, boolean decryptVariables) {
+        return this.of(flow, task, execution, taskRun, decryptVariables, this.variableRenderer);
+    }
+
+    public RunContext of(FlowInterface flow, Task task, Execution execution, TaskRun taskRun, boolean decryptVariables, VariableRenderer variableRenderer) {
+        RunContextLogger runContextLogger = runContextLoggerFactory.create(taskRun, task, execution.getKind());
 
         return newBuilder()
             // Logger
@@ -111,14 +142,16 @@ public class RunContextFactory {
                 .withTaskRun(taskRun)
                 .withDecryptVariables(decryptVariables)
                 .withSecretInputs(secretInputsFromFlow(flow))
-                .build(runContextLogger))
+                .build(runContextLogger, PropertyContext.create(variableRenderer)))
             .withKvStoreService(kvStoreService)
             .withSecretInputs(secretInputsFromFlow(flow))
+            .withTask(task)
+            .withVariableRenderer(variableRenderer)
             .build();
     }
 
     public RunContext of(Flow flow, AbstractTrigger trigger) {
-        RunContextLogger runContextLogger = runContextLoggerFactory.create(flow, trigger);
+        RunContextLogger runContextLogger = runContextLoggerFactory.create(flow, trigger, null);
         return newBuilder()
             // Logger
             .withLogger(runContextLogger)
@@ -128,9 +161,10 @@ public class RunContextFactory {
                 .withFlow(flow)
                 .withTrigger(trigger)
                 .withSecretInputs(secretInputsFromFlow(flow))
-                .build(runContextLogger)
+                .build(runContextLogger, PropertyContext.create(this.variableRenderer))
             )
             .withSecretInputs(secretInputsFromFlow(flow))
+            .withTrigger(trigger)
             .build();
     }
 
@@ -148,6 +182,11 @@ public class RunContextFactory {
 
     @VisibleForTesting
     public RunContext of(final Map<String, Object> variables) {
+        return of((Task) null, variables);
+    }
+
+    @VisibleForTesting
+    public RunContext of(final Task task, final Map<String, Object> variables) {
         RunContextLogger runContextLogger = new RunContextLogger();
         return newBuilder()
             .withLogger(runContextLogger)
@@ -163,7 +202,7 @@ public class RunContextFactory {
                     @Override
                     public String getTenantId() {
                         var tenantId = ((Map<String, Object>)variables.getOrDefault("flow", Map.of())).get("tenantId");
-                        return Optional.ofNullable(tenantId).map(Object::toString).orElse(null);
+                        return Optional.ofNullable(tenantId).map(Object::toString).orElse(MAIN_TENANT);
                     }
 
                     @SuppressWarnings("unchecked")
@@ -177,6 +216,7 @@ public class RunContextFactory {
                 flowService
             ))
             .withVariables(variables)
+            .withTask(task)
             .build();
     }
 
@@ -185,7 +225,7 @@ public class RunContextFactory {
         return of(Map.of());
     }
 
-    private List<String> secretInputsFromFlow(Flow flow) {
+    private List<String> secretInputsFromFlow(FlowInterface flow) {
         if (flow == null || flow.getInputs() == null) {
             return Collections.emptyList();
         }
@@ -200,7 +240,7 @@ public class RunContextFactory {
             // inject mandatory services and config
             .withApplicationContext(applicationContext) // TODO - ideally application should not be injected here
             .withMeterRegistry(metricRegistry)
-            .withVariableRenderer(variableRenderer)
+            .withVariableRenderer(this.variableRenderer)
             .withStorageInterface(storageInterface)
             .withSecretKey(secretKey)
             .withWorkingDir(workingDirFactory.createWorkingDirectory())
@@ -210,6 +250,7 @@ public class RunContextFactory {
     protected RunVariables.Builder newRunVariablesBuilder() {
         return new RunVariables.DefaultBuilder(secretKey)
             .withEnvs(runContextCache.getEnvVars())
-            .withGlobals(runContextCache.getGlobalVars());
+            .withGlobals(runContextCache.getGlobalVars())
+            .withKestraConfiguration(new RunVariables.KestraConfiguration(kestraEnvironment, kestraUrl));
     }
 }

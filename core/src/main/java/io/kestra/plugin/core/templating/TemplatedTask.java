@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.*;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
@@ -23,7 +23,8 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "This task's `spec` property allows you to fully template all task properties using Kestra's Pebble templating. This way, all task properties and their values can be dynamically rendered based on your custom inputs, variables, and outputs from other tasks!"
+    title = "Templatize task properties using Kestra’s Pebble templating.",
+    description = "This task's `spec` property allows you to fully templatize all task properties using Kestra's Pebble templating. This way, all task properties and their values can be dynamically rendered based on your custom inputs, variables, and outputs from other tasks."
 )
 @Plugin(
     examples = {
@@ -31,7 +32,7 @@ import lombok.experimental.SuperBuilder;
             code = {
                 """
                     spec: |
-                      type: io.kestra.plugin.fs.http.Download
+                      type: io.kestra.plugin.core.http.Download
                       {{ task.property }}: {{ task.value }}"""
             }
         )
@@ -42,13 +43,12 @@ public class TemplatedTask extends Task implements RunnableTask<Output> {
     private static final ObjectMapper OBJECT_MAPPER = JacksonMapper.ofYaml();
 
     @NotNull
-    @PluginProperty(dynamic = true)
     @Schema(title = "The templated task specification")
-    private String spec;
+    private Property<String> spec;
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String taskSpec = runContext.render(this.spec);
+        String taskSpec = runContext.render(this.spec).as(String.class).orElseThrow();
         try {
             Task task = OBJECT_MAPPER.readValue(taskSpec, Task.class);
             if (task instanceof TemplatedTask) {

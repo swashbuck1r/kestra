@@ -1,5 +1,7 @@
 package io.kestra.core.runners;
 
+import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.junit.annotations.LoadFlows;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.queues.QueueException;
@@ -9,26 +11,30 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static io.kestra.core.tenant.TenantService.MAIN_TENANT;
+import static org.assertj.core.api.Assertions.assertThat;
 
-public class EmptyVariablesTest extends AbstractMemoryRunnerTest {
+@KestraTest(startRunner = true)
+public class EmptyVariablesTest {
 
+    @Inject
+    private TestRunnerUtils runnerUtils;
     @Inject
     private FlowInputOutput flowIO;
 
     @Test
+    @LoadFlows({"flows/valids/empty-variables.yml"})
     void emptyVariables() throws TimeoutException, QueueException {
         Execution execution = runnerUtils.runOne(
-            null,
+            MAIN_TENANT,
             "io.kestra.tests",
             "empty-variables",
             null,
             (flow, exec) -> flowIO.readExecutionInputs(flow, exec, Map.of("emptyKey", "{ \"foo\": \"\" }", "emptySubObject", "{\"json\":{\"someEmptyObject\":{}}}"))
         );
 
-        assertThat(execution, notNullValue());
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
-        assertThat(execution.getTaskRunList(), hasSize(3));
+        assertThat(execution).isNotNull();
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(3);
     }
 }

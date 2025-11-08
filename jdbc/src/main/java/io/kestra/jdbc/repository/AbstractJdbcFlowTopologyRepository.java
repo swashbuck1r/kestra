@@ -1,5 +1,6 @@
 package io.kestra.jdbc.repository;
 
+import io.kestra.core.models.flows.FlowInterface;
 import io.kestra.core.models.flows.FlowWithSource;
 import io.kestra.core.models.topologies.FlowTopology;
 import io.kestra.core.repositories.FlowTopologyRepositoryInterface;
@@ -78,7 +79,52 @@ public abstract class AbstractJdbcFlowTopologyRepository extends AbstractJdbcRep
             });
     }
 
-    public void save(FlowWithSource flow, List<FlowTopology> flowTopologies) {
+    @Override
+    public List<FlowTopology> findByNamespacePrefix(String tenantId, String namespacePrefix) {
+        return jdbcRepository
+            .getDslContextWrapper()
+            .transactionResult(configuration -> {
+                // Match flows that originate from the namespace or its children
+                Condition sourceCondition = field("source_namespace").eq(namespacePrefix)
+                    .or(field("source_namespace").likeIgnoreCase(namespacePrefix + ".%"));
+
+                Condition tenantSource = buildTenantCondition("source", tenantId);
+                Condition tenantDest = buildTenantCondition("destination", tenantId);
+
+                Select<Record1<Object>> from = DSL
+                    .using(configuration)
+                    .select(field("value"))
+                    .from(this.jdbcRepository.getTable())
+                    .where(tenantSource.and(tenantDest).and(sourceCondition));
+
+                return this.jdbcRepository.fetch(from);
+            });
+    }
+
+    @Override
+    public List<FlowTopology> findAll(String tenantId) {
+        return jdbcRepository
+            .getDslContextWrapper()
+            .transactionResult(configuration -> {
+                List<Condition> ors = new ArrayList<>();
+                ors.add(
+                    DSL.and(
+                        buildTenantCondition("destination", tenantId),
+                        buildTenantCondition("source", tenantId)
+                    )
+                );
+
+                Select<Record1<Object>> from = DSL
+                    .using(configuration)
+                    .select(field("value"))
+                    .from(this.jdbcRepository.getTable())
+                    .where(DSL.or(ors));
+
+                return this.jdbcRepository.fetch(from);
+            });
+    }
+
+    public void save(FlowInterface flow, List<FlowTopology> flowTopologies) {
         jdbcRepository
             .getDslContextWrapper()
             .transaction(configuration -> {

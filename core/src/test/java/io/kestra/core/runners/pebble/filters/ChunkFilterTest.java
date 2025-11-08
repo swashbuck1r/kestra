@@ -10,8 +10,7 @@ import java.util.Arrays;
 import java.util.Map;
 import jakarta.inject.Inject;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
@@ -27,7 +26,7 @@ class ChunkFilterTest {
 
         String render = variableRenderer.render("{{ list | chunk(2) }}", vars);
 
-        assertThat(render, is("[[1,2],[3,4],[5,6],[7,8],[9]]"));
+        assertThat(render).isEqualTo("[[1,2],[3,4],[5,6],[7,8],[9]]");
     }
 
     @Test
@@ -39,4 +38,17 @@ class ChunkFilterTest {
             }).get();
         });
     }
+    @Test
+    void chunkWithIntegerVariable() throws IllegalVariableEvaluationException {
+        // Reproducer for issue: Integer variable causing ClassCastException
+        Map<String, Object> vars = Map.of(
+            "max_items", Integer.valueOf(2),
+            "list", Arrays.asList(1, 2, 3, 4, 5)
+        );
+
+        String render = variableRenderer.render("{{ list | chunk(max_items) }}", vars);
+
+        assertThat(render).isEqualTo("[[1,2],[3,4],[5]]");
+    }
+
 }

@@ -2,8 +2,8 @@ package io.kestra.core.runners;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.kestra.core.models.executions.*;
-import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.FlowWithException;
+import io.kestra.core.models.flows.FlowWithSource;
 import io.kestra.core.models.flows.State;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -11,6 +11,10 @@ import lombok.Getter;
 import java.util.ArrayList;
 import java.util.List;
 
+// TODO for 2.0: this class is used as a queue consumer (which should have been the ExecutorInterface instead),
+//  a queue message (only in Kafka) and an execution context.
+//  At some point, we should rename it to ExecutorContext and move it to the executor module,
+//  then rename the ExecutorInterface to just Executor (to be used as a queue consumer)
 @Getter
 @AllArgsConstructor
 public class Executor {
@@ -20,10 +24,9 @@ public class Executor {
     private Long offset;
     @JsonIgnore
     private boolean executionUpdated = false;
-    private Flow flow;
+    private FlowWithSource flow;
     private final List<TaskRun> nexts = new ArrayList<>();
     private final List<WorkerTask> workerTasks = new ArrayList<>();
-    private final List<WorkerTaskResult> workerTaskResults = new ArrayList<>();
     private final List<ExecutionDelay> executionDelays = new ArrayList<>();
     private WorkerTaskResult joinedWorkerTaskResult;
     private final List<SubflowExecution<?>> subflowExecutions = new ArrayList<>();
@@ -35,6 +38,8 @@ public class Executor {
     private final List<WorkerTrigger> workerTriggers = new ArrayList<>();
     private WorkerJob workerJobToResubmit;
     private State.Type originalState;
+    private SubflowExecutionEnd subflowExecutionEnd;
+    private SubflowExecutionEnd joinedSubflowExecutionEnd;
 
     /**
      * The sequence id should be incremented each time the execution is persisted after mutation.
@@ -67,6 +72,10 @@ public class Executor {
         this.joinedSubflowExecutionResult = subflowExecutionResult;
     }
 
+    public Executor(SubflowExecutionEnd subflowExecutionEnd) {
+        this.joinedSubflowExecutionEnd = subflowExecutionEnd;
+    }
+
     public Executor(WorkerJob workerJob) {
         this.workerJobToResubmit = workerJob;
     }
@@ -80,10 +89,11 @@ public class Executor {
     }
 
     public Boolean canBeProcessed() {
-        return !(this.getException() != null || this.getFlow() == null || this.getFlow() instanceof FlowWithException || this.getFlow().getTasks() == null || this.getExecution().isDeleted() || this.getExecution().getState().isPaused());
+        return !(this.getException() != null || this.getFlow() == null || this.getFlow() instanceof FlowWithException || this.getFlow().getTasks() == null ||
+            this.getExecution().isDeleted() || this.getExecution().getState().isPaused() || this.getExecution().getState().isBreakpoint() || this.getExecution().getState().isQueued());
     }
 
-    public Executor withFlow(Flow flow) {
+    public Executor withFlow(FlowWithSource flow) {
         this.flow = flow;
 
         return this;
@@ -125,13 +135,6 @@ public class Executor {
         return this;
     }
 
-    public Executor withWorkerTaskResults(List<WorkerTaskResult> workerTaskResults, String from) {
-        this.workerTaskResults.addAll(workerTaskResults);
-        this.from.add(from);
-
-        return this;
-    }
-
     public Executor withWorkerTaskDelays(List<ExecutionDelay> executionDelays, String from) {
         this.executionDelays.addAll(executionDelays);
         this.from.add(from);
@@ -166,6 +169,11 @@ public class Executor {
 
     public Executor withExecutionKilled(final List<ExecutionKilledExecution> executionKilled) {
         this.executionKilled = executionKilled;
+        return this;
+    }
+
+    public Executor withSubflowExecutionEnd(SubflowExecutionEnd subflowExecutionEnd) {
+        this.subflowExecutionEnd = subflowExecutionEnd;
         return this;
     }
 

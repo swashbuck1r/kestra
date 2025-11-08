@@ -1,75 +1,159 @@
-import ExecutionRoot from "../components/executions/ExecutionRoot.vue"
-import Executions from "../components/executions/Executions.vue"
-import TaskRuns from "../components/taskruns/TaskRuns.vue"
-import FlowRoot from "../components/flows/FlowRoot.vue"
-import Flows from "../components/flows/Flows.vue"
-import LogsWrapper from "../components/logs/LogsWrapper.vue"
-import Plugin from "../components/plugins/Plugin.vue"
-import Settings from "override/components/settings/Settings.vue"
-import TemplateEdit from "../components/templates/TemplateEdit.vue"
-import Templates from "../components/templates/Templates.vue"
-import FlowsSearch from "../components/flows/FlowsSearch.vue";
-import Errors from "../components/errors/Errors.vue";
-import Dashboard from "../components/dashboard/Dashboard.vue";
-import Welcome from "../components/onboarding/Welcome.vue";
-import FlowCreate from "../components/flows/FlowCreate.vue";
-import Blueprints from "override/components/flows/blueprints/Blueprints.vue";
-import BlueprintDetail from "../components/flows/blueprints/BlueprintDetail.vue";
-import Triggers from "../components/admin/Triggers.vue";
-import Stats from "override/components/admin/stats/Stats.vue";
-import Namespaces from "../components/namespace/Namespaces.vue";
-import Namespace from "../components/namespace/Namespace.vue";
-import Docs from "../components/docs/Docs.vue";
+import OnlyLeftMenuLayout from "../components/layout/OnlyLeftMenuLayout.vue"
+import FullScreenLayout from "../components/layout/FullScreenLayout.vue"
+import Errors from "../components/errors/Errors.vue"
+import DemoIAM from "../components/demo/IAM.vue"
+import DemoTenants from "../components/demo/Tenants.vue"
+import DemoAuditLogs from "../components/demo/AuditLogs.vue"
+import DemoInstance from "../components/demo/Instance.vue"
+import DemoApps from "../components/demo/Apps.vue"
+import DemoTests from "../components/demo/Tests.vue"
+import {useMiscStore} from "override/stores/misc";
+
+function maybeAddTimeRangeFilter(to) {
+    const dateTimeKeys = ["startDate", "endDate", "timeRange"];
+
+    // Default to the configured duration if no time range is set
+    if (!Object.keys(to.query).some((key) => dateTimeKeys.some((dateTimeKey) => key.includes(dateTimeKey)))) {
+        const miscStore = useMiscStore();
+        const defaultDuration = miscStore.configs?.chartDefaultDuration || "P30D"; // Fallback to 30 days
+        to.query["filters[timeRange][EQUALS]"] = defaultDuration;
+
+        return true;
+    }
+
+    return false;
+}
 
 export default [
-    //Flows
-    {name: "root", path: "/", redirect: {name: "home"}},
-    {name: "home", path: "/:tenant?/dashboard", component: Dashboard},
-    {name: "welcome", path: "/:tenant?/welcome", component: Welcome},
+    //Initial
+    {name: "root", path: "/", redirect: {name: "home"}, meta: {layout: {template: "<div />"}}},
+    {name: "welcome", path: "/:tenant?/welcome", component: () => import("../components/onboarding/Welcome.vue")},
+
+    //Dashboards
+    {
+        name: "home",
+        path: "/:tenant?/dashboards/:dashboard?",
+        component: () => import("../components/dashboard/Dashboard.vue"),
+        beforeEnter: (to, from, next) => {
+            if (maybeAddTimeRangeFilter(to)) {
+                next({
+                    name: to.name,
+                    params: to.params,
+                    query: to.query,
+                });
+                return;
+            }
+
+            if (!to.params.dashboard) {
+                next({
+                    name: "home",
+                    params: {
+                        ...to.params,
+                        dashboard: "default",
+                    },
+                    query: to.query,
+                });
+            } else {
+                next();
+            }
+        },
+    },
+    {name: "dashboards/create", path: "/:tenant?/dashboards/new", component: () => import("../components/dashboard/components/Create.vue")},
+    {name: "dashboards/update", path: "/:tenant?/dashboards/:dashboard/edit", component: () => import("override/components/dashboard/Edit.vue")},
 
     //Flows
-    {name: "flows/list", path: "/:tenant?/flows", component: Flows},
-    {name: "flows/search", path: "/:tenant?/flows/search", component: FlowsSearch},
-    {name: "flows/create", path: "/:tenant?/flows/new", component: FlowCreate},
-    {name: "flows/update", path: "/:tenant?/flows/edit/:namespace/:id/:tab?", component: FlowRoot},
+    {name: "flows/list", path: "/:tenant?/flows", component: () => import("../components/flows/Flows.vue")},
+    {name: "flows/search", path: "/:tenant?/flows/search", component: () => import("../components/flows/FlowsSearch.vue")},
+    {name: "flows/create", path: "/:tenant?/flows/new", component: () => import("../components/flows/FlowCreate.vue")},
+    {name: "flows/update", path: "/:tenant?/flows/edit/:namespace/:id/:tab?", component: () => import("../components/flows/FlowRoot.vue")},
 
     //Executions
-    {name: "executions/list", path: "/:tenant?/executions", component: Executions},
-    {name: "executions/update", path: "/:tenant?/executions/:namespace/:flowId/:id/:tab?", component: ExecutionRoot},
+    {
+        name: "executions/list",
+        path: "/:tenant?/executions",
+        component: () => import("../components/executions/Executions.vue"),
+        beforeEnter: (to, from, next) => {
+            if (maybeAddTimeRangeFilter(to)) {
+                next({
+                    name: to.name,
+                    params: to.params,
+                    query: to.query,
+                });
+                return;
+            }
 
-    //TaskRuns
-    {name: "taskruns/list", path: "/:tenant?/taskruns", component: TaskRuns},
+            next();
+        }
+    },
+    {name: "executions/update", path: "/:tenant?/executions/:namespace/:flowId/:id/:tab?", component: () => import("../components/executions/ExecutionRoot.vue")},
+
+    //KV
+    {name: "kv/list", path: "/:tenant?/kv", component: () => import("../components/kv/KVs.vue")},
+
+    //Secrets
+    {name: "secrets/list", path: "/:tenant?/secrets", component: () => import("../components/secrets/Secrets.vue")},
 
     //Blueprints
-    {name: "blueprints", path: "/:tenant?/blueprints", component: Blueprints, props: {topNavbar: false}},
-    {name: "blueprints/view", path: "/:tenant?/blueprints/:blueprintId", component: BlueprintDetail, props: true},
+    {name: "blueprints", path: "/:tenant?/blueprints/:kind/:tab", component: () => import("override/components/flows/blueprints/Blueprints.vue"), props: true},
+    {name: "blueprints/view", path: "/:tenant?/blueprints/:kind/:tab/:blueprintId", component: () => import("../components/flows/blueprints/BlueprintDetail.vue"), props: true},
 
     //Documentation
-    {name: "plugins/list", path: "/:tenant?/plugins", component: Plugin},
-    {name: "plugins/view", path: "/:tenant?/plugins/:cls",   component: Plugin},
+    {name: "plugins/list", path: "/:tenant?/plugins", component: () => import("../components/plugins/Plugin.vue")},
+    {name: "plugins/view", path: "/:tenant?/plugins/:cls/:version?",   component: () => import("../components/plugins/Plugin.vue")},
 
     //Templates
-    {name: "templates/list", path: "/:tenant?/templates", component: Templates},
-    {name: "templates/create", path: "/:tenant?/templates/new", component: TemplateEdit},
-    {name: "templates/update", path: "/:tenant?/templates/edit/:namespace/:id", component: TemplateEdit},
+    {name: "templates/list", path: "/:tenant?/templates", component: () => import("../components/templates/Templates.vue")},
+    {name: "templates/create", path: "/:tenant?/templates/new", component: () => import("../components/templates/TemplateEdit.vue")},
+    {name: "templates/update", path: "/:tenant?/templates/edit/:namespace/:id", component: () => import("../components/templates/TemplateEdit.vue")},
 
     //Logs
-    {name: "logs/list", path: "/:tenant?/logs", component: LogsWrapper},
+    {
+        name: "logs/list",
+        path: "/:tenant?/logs",
+        component: () => import("../components/logs/LogsWrapper.vue"),
+        beforeEnter: (to, from, next) => {
+            if (maybeAddTimeRangeFilter(to)) {
+                next({
+                    name: to.name,
+                    params: to.params,
+                    query: to.query,
+                });
+                return;
+            }
+
+            next();
+        }
+    },
 
     //Namespaces
-    {name: "namespaces", path: "/:tenant?/namespaces", component: Namespaces},
-    {name: "namespaces/update", path: "/:tenant?/namespaces/edit/:id/:tab?", component: Namespace},
+    {name: "namespaces/list", path: "/:tenant?/namespaces", component: () => import("override/components/namespaces/Namespaces.vue")},
+    {name: "namespaces/create", path: "/:tenant?/namespaces/new/:tab?", component: () => import("../components/namespaces/Namespace.vue")},
+    {name: "namespaces/update", path: "/:tenant?/namespaces/edit/:id/:tab?", component: () => import("../components/namespaces/Namespace.vue")},
 
     //Docs
-    {name: "docs/view", path: "/:tenant?/docs/:path(.*)?", component: Docs, meta: {layout: "main"}},
+    {name: "docs/view", path: "/:tenant?/docs/:path(.*)?", component: () => import("../components/docs/Docs.vue"), meta: {layout: OnlyLeftMenuLayout}},
 
     //Settings
-    {name: "settings", path: "/:tenant?/settings", component: Settings},
+    {name: "settings", path: "/:tenant?/settings", component: () => import("override/components/settings/Settings.vue")},
 
     //Admin
-    {name: "admin/triggers", path: "/:tenant?/admin/triggers", component: Triggers},
-    {name: "admin/stats", path: "/:tenant?/admin/stats", component: Stats},
+    {name: "admin/triggers", path: "/:tenant?/admin/triggers", component: () => import("../components/admin/Triggers.vue")},
+    {name: "admin/stats", path: "/:tenant?/admin/stats", component: () => import("override/components/admin/stats/Stats.vue")},
+    {name: "admin/concurrency-limits", path: "/:tenant?/admin/concurrency-limits", component: () => import("../components/admin/ConcurrencyLimits.vue")},
+
+    //Setup
+    {name: "setup", path: "/:tenant?/setup", component: () => import("../components/basicauth/BasicAuthSetup.vue"), meta: {layout: FullScreenLayout}},
+    //Login
+    {name: "login", path: "/:tenant?/login", component: () => import("../components/basicauth/BasicAuthLogin.vue"), meta: {layout: FullScreenLayout}},
 
     //Errors
-    {name: "errors/404-wildcard", path: "/:pathMatch(.*)", component: Errors, props: {code: 404}},
-]
+    {name: "errors/404-wildcard", path: "/:tenant?/:pathMatch(.*)", component: Errors, props: {code: 404}},
+
+    //Demo Pages
+    {name: "apps/list", path: "/:tenant?/apps", component: DemoApps},
+    {name: "tests/list", path: "/:tenant?/tests", component: DemoTests},
+    {name: "admin/iam", path: "/:tenant?/admin/iam", component: DemoIAM},
+    {name: "admin/tenants/list", path: "/:tenant?/admin/tenants", component: DemoTenants},
+    {name: "admin/auditlogs/list", path: "/:tenant?/admin/auditlogs", component: DemoAuditLogs},
+    {name: "admin/instance", path: "/:tenant?/admin/instance", component: DemoInstance},
+];

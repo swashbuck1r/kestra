@@ -9,6 +9,7 @@ import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.NextTaskRun;
 import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.flows.State;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.InputFilesInterface;
 import io.kestra.core.models.tasks.NamespaceFiles;
 import io.kestra.core.models.tasks.NamespaceFilesInterface;
@@ -16,13 +17,10 @@ import io.kestra.core.models.tasks.OutputFilesInterface;
 import io.kestra.core.models.tasks.ResolvedTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.tasks.VoidOutput;
-import io.kestra.core.runners.FilesService;
-import io.kestra.core.runners.RunContext;
-import io.kestra.core.runners.WorkerTask;
+import io.kestra.core.runners.*;
 import io.kestra.core.serializers.FileSerde;
-import io.kestra.core.storages.NamespaceFile;
 import io.kestra.core.utils.IdUtils;
-import io.kestra.core.utils.Rethrow;
+import io.kestra.core.utils.NamespaceFilesUtils;
 import io.kestra.core.validations.WorkingDirectoryTaskValidation;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
@@ -105,7 +103,6 @@ import jakarta.validation.constraints.NotNull;
                         containerImage: python:3.11-slim
                         beforeCommands:
                           - pip install requests kestra > /dev/null
-                        warningOnStdErr: false
                         script: |
                           import requests
                           import json
@@ -185,10 +182,10 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
     private static final String OUTPUTS_FILE = "outputs.ion";
 
     @Schema(
-        title = "Cache configuration.",
+        title = "Cache configuration",
         description = """
-            When a cache is configured, an archive of the files denoted by the cache configuration is created at the end of the execution of the task and saved in Kestra's internal storage.
-            Then at the beginning of the next execution of the task, the archive of the files is retrieved and the working directory initialized with it.
+            When a cache is configured, an archive of the files denoted by the cache configuration is created at the end of the task run and saved in Kestra's internal storage.
+            Then, at the beginning of the next task execution, the file archive is retrieved and the working directory is initialized with it.
             """
     )
     @PluginProperty
@@ -202,7 +199,7 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
 
     private Object inputFiles;
 
-    private List<String> outputFiles;
+    private Property<List<String>> outputFiles;
 
     @Override
     public List<NextTaskRun> resolveNexts(RunContext runContext, Execution execution, TaskRun parentTaskRun) throws IllegalVariableEvaluationException {
@@ -237,7 +234,7 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
     public void preExecuteTasks(RunContext runContext, TaskRun taskRun) throws Exception {
         if (cache != null) {
             // May download cached file if it exists and is not expired, and extract its content
-            var maybeCacheFile = runContext.storage().getCacheFile(getId(), taskRun.getValue(), cache.ttl);
+            var maybeCacheFile = runContext.storage().getCacheFile(getId(), taskRun.getValue(), runContext.render(cache.ttl).as(Duration.class).orElse(null));
             if (maybeCacheFile.isPresent()) {
                 runContext.logger().debug("Cache exist, downloading it");
                 // download the cache if exist and unzip all entries
@@ -262,14 +259,9 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
             }
         }
 
-        if (this.namespaceFiles != null && !Boolean.FALSE.equals(this.namespaceFiles.getEnabled())) {
-            runContext.storage()
-                .namespace()
-                .findAllFilesMatching(this.namespaceFiles.getInclude(), this.namespaceFiles.getExclude())
-                .forEach(Rethrow.throwConsumer(namespaceFile -> {
-                    InputStream content = runContext.storage().getFile(namespaceFile.uri());
-                    runContext.workingDir().putFile(Path.of(namespaceFile.path()), content);
-                }));
+        if (this.namespaceFiles != null && !Boolean.FALSE.equals(runContext.render(this.namespaceFiles.getEnabled()).as(Boolean.class).orElse(true))) {
+            NamespaceFilesUtils namespaceFilesUtils = ((DefaultRunContext) runContext).getApplicationContext().getBean(NamespaceFilesUtils.class);
+            namespaceFilesUtils.loadNamespaceFiles(runContext, this.namespaceFiles);
         }
 
         if (this.inputFiles != null) {
@@ -280,7 +272,7 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
     public void postExecuteTasks(RunContext runContext, TaskRun taskRun) throws Exception {
         if (this.outputFiles != null) {
             try {
-                Map<String, URI> outputFilesURIs = FilesService.outputFiles(runContext, this.outputFiles);
+                Map<String, URI> outputFilesURIs = FilesService.outputFiles(runContext, runContext.render(this.outputFiles).asList(String.class));
                 if (!outputFilesURIs.isEmpty()) {
                     final ByteArrayOutputStream os = new ByteArrayOutputStream();
                     try (os) {
@@ -299,7 +291,7 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
         }
         try {
             // This is monolithic, maybe a cache entry by pattern would be better.
-            List<Path> matchesList = runContext.workingDir().findAllFilesMatching(cache.getPatterns());
+            List<Path> matchesList = runContext.workingDir().findAllFilesMatching(runContext.render(cache.getPatterns()).asList(String.class));
 
             // Check that some files has been updated since the start of the task
             // TODO we may need to allow excluding files as some files always changed for dependencies (for ex .package-log.json)
@@ -308,7 +300,7 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
                     try {
                         return Files.getLastModifiedTime(path).toMillis() > cacheDownloadedTime;
                     } catch (IOException e) {
-                        runContext.logger().warn("Unable to retrieve files last modified time,  will update the cache anyway", e);
+                        runContext.logger().warn("Unable to retrieve files last modified time, will update the cache anyway", e);
                         return true;
                     }
                 });
@@ -365,7 +357,7 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
     @Getter
     public static class Outputs extends VoidOutput {
         @Schema(
-            title = "The URIs for output files."
+            title = "The URIs for output files"
         )
         private final Map<String, URI> outputFiles;
 
@@ -381,15 +373,13 @@ public class WorkingDirectory extends Sequential implements NamespaceFilesInterf
     @NoArgsConstructor
     public static class Cache {
         @Schema(title = "Cache TTL (Time To Live), after this duration the cache will be deleted.")
-        @PluginProperty
-        private Duration ttl;
+        private Property<Duration> ttl;
 
         @Schema(
-            title = "List of file [glob](https://en.wikipedia.org/wiki/Glob_(programming)) patterns to include in the cache.",
+            title = "List of file [glob](https://en.wikipedia.org/wiki/Glob_(programming)) patterns to include in the cache",
             description = "For example, 'node_modules/**' will include all files of the node_modules directory including sub-directories."
         )
-        @PluginProperty
         @NotNull
-        private List<String> patterns;
+        private Property<List<String>> patterns;
     }
 }

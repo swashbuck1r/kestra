@@ -1,47 +1,69 @@
-import {shallowRef, computed} from "vue";
-import {useStore} from "vuex";
-import {useRouter} from "vue-router";
+import {computed} from "vue";
+import {useRoute, useRouter} from "vue-router";
 import {useI18n} from "vue-i18n";
+import {useMiscStore} from "override/stores/misc";
+
+import {getDashboard} from "../../components/dashboard/composables/useDashboards";
 
 import FileTreeOutline from "vue-material-design-icons/FileTreeOutline.vue";
 import ContentCopy from "vue-material-design-icons/ContentCopy.vue";
 import TimelineClockOutline from "vue-material-design-icons/TimelineClockOutline.vue";
 import TimelineTextOutline from "vue-material-design-icons/TimelineTextOutline.vue";
-import ChartTimeline from "vue-material-design-icons/ChartTimeline.vue";
 import BallotOutline from "vue-material-design-icons/BallotOutline.vue";
 import ShieldAccountVariantOutline from "vue-material-design-icons/ShieldAccountVariantOutline.vue";
-import CogOutline from "vue-material-design-icons/CogOutline.vue";
 import ViewDashboardVariantOutline from "vue-material-design-icons/ViewDashboardVariantOutline.vue";
-import TimerCogOutline from "vue-material-design-icons/TimerCogOutline.vue";
-import ChartBoxOutline from "vue-material-design-icons/ChartBoxOutline.vue";
 import Connection from "vue-material-design-icons/Connection.vue";
 import DotsSquare from "vue-material-design-icons/DotsSquare.vue";
-import AccountOutline from "vue-material-design-icons/AccountOutline.vue";
-import ShieldCheckOutline from "vue-material-design-icons/ShieldCheckOutline.vue";
-import ServerOutline from "vue-material-design-icons/ServerOutline.vue";
-import ShieldLockOutline from "vue-material-design-icons/ShieldLockOutline.vue"
+import FormatListGroupPlus from "vue-material-design-icons/FormatListGroupPlus.vue";
+import DatabaseOutline from "vue-material-design-icons/DatabaseOutline.vue";
+import ShieldKeyOutline from "vue-material-design-icons/ShieldKeyOutline.vue";
+import FlaskOutline from "vue-material-design-icons/FlaskOutline.vue";
+
+export type MenuItem = {
+    href?: {
+        path?: string,
+        name: string,
+        params?: Record<string, any>,
+        query?: Record<string, any>
+    },
+    child?: MenuItem[],
+    disabled?: boolean,
+};
 
 export function useLeftMenu() {
-    const {t} = useI18n()
-    const $router = useRouter()
-    const store = useStore()
+    const {t} = useI18n({useScope: "global"});
+    const $route = useRoute();
+    const $router = useRouter();
+    const miscStore = useMiscStore();
 
-    function routeStartWith(route) {
-        return $router?.getRoutes().filter(r => typeof r.name === "string" && r.name.startsWith(route)).map(r => r.name);
+    /**
+     * Returns all route names that start with the given route
+     * @param route
+     * @returns
+     */
+    function routeStartWith(route: string) {
+        return $router
+            ?.getRoutes()
+            .filter(
+                (r) => typeof r.name === "string" && r.name.startsWith(route),
+            )
+            .map((r) => r.name);
     }
 
-    const configs = computed(() => store.state.misc.configs);
+    const flatMenuItems = (items: MenuItem[]): MenuItem[] => {
+        return items.flatMap(item => item.child ? [item, ...flatMenuItems(item.child)] : [item])
+    }
 
-    // This object seems to be a good candidate for a computed value
-    // but cannot be. When it becomes a computed, the hack to set current
-    // route as active in the blueprints activates pages forever.
-    const generateMenu = () => {
-        return [
+    const menu = computed(() => {
+        const generatedMenu = [
             {
-                href: {name: "home"},
-                title: t("homeDashboard.title"),
+                href: {
+                    name: "home",
+                    params: {dashboard: getDashboard($route, "id")},
+                },
+                title: t("dashboards.labels.plural"),
                 icon: {
-                    element: shallowRef(ViewDashboardVariantOutline),
+                    element: ViewDashboardVariantOutline,
                     class: "menu-icon",
                 },
             },
@@ -50,159 +72,209 @@ export function useLeftMenu() {
                 routes: routeStartWith("flows"),
                 title: t("flows"),
                 icon: {
-                    element: shallowRef(FileTreeOutline),
+                    element: FileTreeOutline,
                     class: "menu-icon",
                 },
                 exact: false,
+            },
+            {
+                href: {name: "apps/list"},
+                routes: routeStartWith("apps"),
+                title: t("apps"),
+                icon: {
+                    element: FormatListGroupPlus,
+                    class: "menu-icon",
+                },
+                attributes: {
+                    locked: true,
+                },
             },
             {
                 href: {name: "templates/list"},
                 routes: routeStartWith("templates"),
                 title: t("templates"),
                 icon: {
-                    element: shallowRef(ContentCopy),
+                    element: ContentCopy,
                     class: "menu-icon",
                 },
-                hidden: !configs.value.isTemplateEnabled
+                hidden: !miscStore.configs?.isTemplateEnabled,
             },
             {
                 href: {name: "executions/list"},
                 routes: routeStartWith("executions"),
                 title: t("executions"),
                 icon: {
-                    element: shallowRef(TimelineClockOutline),
-                    class: "menu-icon"
+                    element: TimelineClockOutline,
+                    class: "menu-icon",
                 },
-            },
-            {
-                href: {name: "taskruns/list"},
-                routes: routeStartWith("taskruns"),
-                title: t("taskruns"),
-                icon: {
-                    element: shallowRef(ChartTimeline),
-                    class: "menu-icon"
-                },
-                hidden: !configs.value.isTaskRunEnabled
             },
             {
                 href: {name: "logs/list"},
                 routes: routeStartWith("logs"),
                 title: t("logs"),
                 icon: {
-                    element: shallowRef(TimelineTextOutline),
-                    class: "menu-icon"
+                    element: TimelineTextOutline,
+                    class: "menu-icon",
                 },
             },
             {
-                href: {name: "namespaces"},
+                href: {name: "tests/list"},
+                routes: routeStartWith("tests"),
+                title: t("demos.tests.label"),
+                icon: {
+                    element: FlaskOutline,
+                    class: "menu-icon"
+                },
+                attributes: {
+                    locked: true,
+                },
+            },
+            {
+                href: {name: "namespaces/list"},
                 routes: routeStartWith("namespaces"),
                 title: t("namespaces"),
                 icon: {
-                    element: shallowRef(DotsSquare),
-                    class: "menu-icon"
-                }
+                    element: DotsSquare,
+                    class: "menu-icon",
+                },
             },
             {
-                href: {name: "blueprints"},
+                href: {name: "kv/list"},
+                routes: routeStartWith("kv"),
+                title: t("kv.name"),
+                icon: {
+                    element: DatabaseOutline,
+                    class: "menu-icon",
+                },
+            },
+            {
+                href: {name: "secrets/list"},
+                routes: routeStartWith("secrets"),
+                title: t("secret.names"),
+                icon: {
+                    element: ShieldKeyOutline,
+                    class: "menu-icon",
+                },
+                attributes: {
+                    locked: true,
+                },
+            },
+            {
                 routes: routeStartWith("blueprints"),
                 title: t("blueprints.title"),
                 icon: {
-                    element: shallowRef(BallotOutline),
-                    class: "menu-icon"
+                    element: BallotOutline,
+                    class: "menu-icon",
                 },
+                child: [
+                    {
+                        title: t("blueprints.custom"),
+                        routes: routeStartWith("blueprints/flow"),
+                        attributes: {
+                            locked: true,
+                        },
+                        href: {
+                            name: "blueprints",
+                            params: {kind: "flow", tab: "custom"},
+                        },
+                    },
+                    {
+                        title: t("blueprints.flows"),
+                        routes: routeStartWith("blueprints/flow"),
+                        href: {
+                            name: "blueprints",
+                            params: {kind: "flow", tab: "community"},
+                        },
+                    },
+                    {
+                        title: t("blueprints.dashboards"),
+                        routes: routeStartWith("blueprints/dashboard"),
+                        href: {
+                            name: "blueprints",
+                            params: {kind: "dashboard", tab: "community"},
+                        },
+                    },
+                ],
             },
             {
                 href: {name: "plugins/list"},
                 routes: routeStartWith("plugins"),
                 title: t("plugins.names"),
                 icon: {
-                    element: shallowRef(Connection),
-                    class: "menu-icon"
+                    element: Connection,
+                    class: "menu-icon",
                 },
             },
             {
                 title: t("administration"),
                 routes: routeStartWith("admin"),
                 icon: {
-                    element: shallowRef(ShieldAccountVariantOutline),
-                    class: "menu-icon"
+                    element: ShieldAccountVariantOutline,
+                    class: "menu-icon",
                 },
                 child: [
                     {
+                        href: {name: "admin/iam"},
+                        routes: routeStartWith("admin/iam"),
                         title: t("iam"),
-                        icon: {
-                            element: shallowRef(AccountOutline),
-                            class: "menu-icon"
-                        },
-                        disabled: true,
                         attributes: {
-                            locked: true
-                        }
+                            locked: true,
+                        },
                     },
                     {
+                        href: {name: "admin/auditlogs/list"},
+                        routes: routeStartWith("admin/auditlogs"),
                         title: t("auditlogs"),
-                        icon: {
-                            element: shallowRef(ShieldCheckOutline),
-                            class: "menu-icon"
-                        },
-                        disabled: true,
                         attributes: {
-                            locked: true
-                        }
+                            locked: true,
+                        },
                     },
                     {
                         href: {name: "admin/triggers"},
                         routes: routeStartWith("admin/triggers"),
                         title: t("triggers"),
-                        icon: {
-                            element: shallowRef(TimerCogOutline),
-                            class: "menu-icon"
-                        }
                     },
                     {
-                        title: t("cluster"),
-                        icon: {
-                            element: shallowRef(ServerOutline),
-                            class: "menu-icon"
-                        },
-                        disabled: true,
+                        href: {name: "admin/instance"},
+                        routes: routeStartWith("admin/instance"),
+                        title: t("instance"),
                         attributes: {
-                            locked: true
-                        }
+                            locked: true,
+                        },
                     },
                     {
-                        title: t("tenants"),
-                        icon: {
-                            element: shallowRef(ShieldLockOutline),
-                            class: "menu-icon"
-                        },
-                        disabled: true,
+                        href: {name: "admin/tenants/list"},
+                        routes: routeStartWith("admin/tenants"),
+                        title: t("tenant.names"),
                         attributes: {
-                            locked: true
-                        }
+                            locked: true,
+                        },
+                    },
+                    {
+                        href: {name: "admin/concurrency-limits"},
+                        routes: routeStartWith("admin/concurrency-limits"),
+                        title: t("concurrency limits"),
                     },
                     {
                         href: {name: "admin/stats"},
                         routes: routeStartWith("admin/stats"),
-                        title: t("stats"),
-                        icon: {
-                            element: shallowRef(ChartBoxOutline),
-                            class: "menu-icon"
-                        },
-                    }
-                ]
-            },
-            {
-                href: {name: "settings"},
-                routes: routeStartWith("admin/settings"),
-                title: t("settings.label"),
-                icon: {
-                    element: shallowRef(CogOutline),
-                    class: "menu-icon"
-                }
+                        title: t("system overview"),
+                    },
+                ],
             }
         ];
-    }
 
-    return {generateMenu} ;
+        flatMenuItems(generatedMenu).forEach(menuItem => {
+            if (menuItem.href !== undefined && menuItem.href?.name === $route.name) {
+                menuItem.href.query = {...$route.query, ...menuItem.href?.query};
+            }
+        });
+
+        return generatedMenu;
+    });
+
+    return {
+        routeStartWith,
+        menu
+    };
 }

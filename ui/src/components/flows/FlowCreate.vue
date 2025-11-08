@@ -1,102 +1,93 @@
 <template>
-    <top-nav-bar :title="routeInfo.title" />
+    <TopNavBar :title="routeInfo.title" />
     <section class="full-container">
-        <editor-view
-            v-if="source"
-            :flow-id="flowParsed?.id"
-            :namespace="flowParsed?.namespace"
-            :is-creating="true"
-            :flow-graph="flowGraph"
-            :is-read-only="false"
-            :is-dirty="true"
-            :total="total"
-            :guided-properties="guidedProperties"
-            :flow-validation="flowValidation"
-            :flow="sourceWrapper"
-            :next-revision="1"
-        />
+        <MultiPanelFlowEditorView v-if="flowStore.flow" />
     </section>
 </template>
 
-<script>
-    import EditorView from "../inputs/EditorView.vue";
-    import {mapGetters, mapState, mapMutations} from "vuex";
-    import RouteContext from "../../mixins/routeContext";
+<script setup lang="ts">
+    import {computed, onBeforeUnmount} from "vue";
+    import {useRoute, onBeforeRouteLeave} from "vue-router";
+    import {useI18n} from "vue-i18n";
+    import * as YAML_UTILS from "@kestra-io/ui-libs/flow-yaml-utils";
     import TopNavBar from "../../components/layout/TopNavBar.vue";
-    import {apiUrl} from "override/utils/route";
-    import {YamlUtils} from "@kestra-io/ui-libs";
+    import MultiPanelFlowEditorView from "./MultiPanelFlowEditorView.vue";
+    import {useBlueprintsStore} from "../../stores/blueprints";
+    import {useCoreStore} from "../../stores/core";
+    import {getRandomID} from "../../../scripts/id";
+    import {useFlowStore} from "../../stores/flow";
+    import {defaultNamespace} from "../../composables/useNamespaces";
+    import {useVueTour} from "../../composables/useVueTour";
 
-    export default {
-        mixins: [RouteContext],
-        components: {
-            EditorView,
-            TopNavBar
-        },
-        data() {
-            return {
-                source: null
-            }
-        },
-        created() {
-            if (this.$route.query.reset) {
-                localStorage.setItem("tourDoneOrSkip", undefined);
-                this.$store.commit("core/setGuidedProperties", {tourStarted: false});
-                this.$tours["guidedTour"]?.start();
-            }
-            this.setupFlow()
+    import type {BlueprintType} from "../../stores/blueprints"
 
-            this.closeAllTabs()
-        },
-        beforeUnmount() {
-            this.$store.commit("flow/setFlowValidation", undefined);
-        },
-        methods: {
-            ...mapMutations("editor", ["closeAllTabs"]),
+    const route = useRoute();
+    const {t} = useI18n();
 
-            async queryBlueprint(blueprintId) {
-                return (await this.$http.get(`${this.blueprintUri}/${blueprintId}/flow`)).data;
-            },
-            async setupFlow() {
-                if (this.$route.query.copy && this.flow){
-                    this.source = this.flow.source;
-                } else if (this.$route.query.blueprintId && this.$route.query.blueprintSource) {
-                    this.source = await this.queryBlueprint(this.$route.query.blueprintId)
-                } else {
-                    const selectedNamespace = this.$route.query.namespace || "company.team";
-                    this.source = `id: myflow
+    const tour = useVueTour("guidedTour");
+
+    const blueprintsStore = useBlueprintsStore();
+    const coreStore = useCoreStore();
+    const flowStore = useFlowStore();
+
+    const setupFlow = async () => {
+        const blueprintId = route.query.blueprintId as string;
+        const blueprintSource = route.query.blueprintSource as BlueprintType;
+        let flowYaml = "";
+        const id = getRandomID();
+        const selectedNamespace = (route.query.namespace as string) || defaultNamespace() || "company.team";
+
+        if (route.query.copy && flowStore.flow) {
+            flowYaml = flowStore.flow.source;
+        } else if (blueprintId && blueprintSource) {
+            flowYaml = await blueprintsStore.getBlueprintSource({
+                type: blueprintSource,
+                kind: "flow",
+                id: blueprintId
+            });
+        } else {
+            flowYaml = `
+id: ${id}
 namespace: ${selectedNamespace}
 
 tasks:
   - id: hello
     type: io.kestra.plugin.core.log.Log
-    message: Hello World! 🚀`;
-                }
-            }
-        },
-        computed: {
-            sourceWrapper() {
-                return {source: this.source};
-            },
-            ...mapState("flow", ["flowGraph", "total"]),
-            ...mapState("auth", ["user"]),
-            ...mapState("plugin", ["pluginSingleList", "pluginsDocumentation"]),
-            ...mapGetters("core", ["guidedProperties"]),
-            ...mapGetters("flow", ["flow", "flowValidation"]),
-            routeInfo() {
-                return {
-                    title: this.$t("flows")
-                };
-            },
-            blueprintUri() {
-                return `${apiUrl(this.$store)}/blueprints/${this.$route.query.blueprintSource}`
-            },
-            flowParsed() {
-                return YamlUtils.parse(this.source);
-            }
-        },
-        beforeRouteLeave(to, from, next) {
-            this.$store.commit("flow/setFlow", null);
-            next();
+    message: Hello World! 🚀`.trim();
         }
+
+        flowStore.flow = {
+            id,
+            namespace: selectedNamespace,
+            ...YAML_UTILS.parse(flowYaml),
+            source: flowYaml,
+        };
+
+        flowStore.initYamlSource();
     };
+
+    const routeInfo = computed(() => {
+        return {
+            title: t("flows")
+        };
+    });
+
+    flowStore.isCreating = true;
+    if (route.query.reset) {
+        localStorage.setItem("tourDoneOrSkip", "");
+        coreStore.guidedProperties = {
+            ...coreStore.guidedProperties,
+            tourStarted: true,
+        };
+        tour.start();
+    }
+    setupFlow();
+
+    onBeforeUnmount(() => {
+        flowStore.flowValidation = undefined;
+    });
+
+    onBeforeRouteLeave(() => {
+        flowStore.flow = undefined;
+    });
 </script>

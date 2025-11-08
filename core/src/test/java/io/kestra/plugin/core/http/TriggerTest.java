@@ -4,9 +4,9 @@ import io.kestra.core.models.executions.Execution;
 import io.kestra.core.queues.QueueFactoryInterface;
 import io.kestra.core.queues.QueueInterface;
 import io.kestra.core.repositories.LocalFlowRepositoryLoader;
+import io.kestra.core.runners.TestMethodScopedWorker;
 import io.kestra.core.runners.Worker;
-import io.kestra.core.schedulers.AbstractScheduler;
-import io.kestra.core.schedulers.SchedulerTriggerStateInterface;
+import io.kestra.scheduler.AbstractScheduler;
 import io.kestra.core.services.FlowListenersInterface;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.core.utils.TestsUtils;
@@ -21,17 +21,13 @@ import reactor.core.publisher.Flux;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@KestraTest
+@KestraTest(rebuildContext = true)
 class TriggerTest {
     @Inject
     private ApplicationContext applicationContext;
-
-    @Inject
-    private SchedulerTriggerStateInterface triggerState;
 
     @Inject
     private FlowListenersInterface flowListenersService;
@@ -54,15 +50,11 @@ class TriggerTest {
                         this.applicationContext,
                         this.flowListenersService
                 );
-                Worker worker = applicationContext.createBean(Worker.class, IdUtils.create(), 8, null);
+                Worker worker = applicationContext.createBean(TestMethodScopedWorker.class, IdUtils.create(), 8, null);
         ) {
-            AtomicReference<Execution> last = new AtomicReference<>();
-
             // wait for execution
             Flux<Execution> receive = TestsUtils.receive(executionQueue, execution -> {
                 if (execution.getLeft().getFlowId().equals("http-listen")) {
-                    last.set(execution.getLeft());
-
                     queueCount.countDown();
                 }
             });
@@ -81,21 +73,17 @@ class TriggerTest {
         // mock flow listeners
         CountDownLatch queueCount = new CountDownLatch(1);
 
-        Worker worker = applicationContext.createBean(Worker.class, IdUtils.create(), 8, null);
         // scheduler
         try (
             AbstractScheduler scheduler = new JdbcScheduler(
                 this.applicationContext,
                 this.flowListenersService
             );
+            Worker worker = applicationContext.createBean(TestMethodScopedWorker.class, IdUtils.create(), 8, null)
         ) {
-            AtomicReference<Execution> last = new AtomicReference<>();
-
             // wait for execution
             Flux<Execution> receive = TestsUtils.receive(executionQueue, execution -> {
                 if (execution.getLeft().getFlowId().equals("http-listen-encrypted")) {
-                    last.set(execution.getLeft());
-
                     queueCount.countDown();
                 }
             });
@@ -105,7 +93,6 @@ class TriggerTest {
             repositoryLoader.load(Objects.requireNonNull(TriggerTest.class.getClassLoader().getResource("flows/valids/http-listen-encrypted.yaml")));
 
             assertTrue(queueCount.await(1, TimeUnit.MINUTES));
-            worker.shutdown();
             receive.blockLast();
         }
     }

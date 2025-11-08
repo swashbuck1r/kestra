@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static java.util.function.Predicate.not;
@@ -22,15 +23,22 @@ public class Plugin {
     private String group;
     private String version;
     private Map<String, String> manifest;
-    private List<String> tasks;
-    private List<String> triggers;
-    private List<String> conditions;
-    private List<String> controllers;
-    private List<String> storages;
-    private List<String> secrets;
-    private List<String> taskRunners;
     private List<String> guides;
     private List<String> aliases;
+    private List<PluginElementMetadata> tasks;
+    private List<PluginElementMetadata> triggers;
+    private List<PluginElementMetadata> conditions;
+    private List<PluginElementMetadata> controllers;
+    private List<PluginElementMetadata> storages;
+    private List<PluginElementMetadata> secrets;
+    private List<PluginElementMetadata> taskRunners;
+    private List<PluginElementMetadata> apps;
+    private List<PluginElementMetadata> appBlocks;
+    private List<PluginElementMetadata> charts;
+    private List<PluginElementMetadata> dataFilters;
+    private List<PluginElementMetadata> dataFiltersKPI;
+    private List<PluginElementMetadata> logExporters;
+    private List<PluginElementMetadata> additionalPlugins;
     private List<PluginSubGroup.PluginCategory> categories;
     private String subGroup;
 
@@ -41,9 +49,12 @@ public class Plugin {
         if (subgroup == null) {
             plugin.title = registeredPlugin.title();
         } else {
-            subGroupInfos = registeredPlugin.allClass().stream().filter(c -> c.getName().contains(subgroup)).map(clazz -> clazz.getPackage().getDeclaredAnnotation(PluginSubGroup.class)).toList().getFirst();
-            plugin.title = !subGroupInfos.title().isEmpty() ? subGroupInfos.title() : subgroup.substring(subgroup.lastIndexOf('.') + 1);;
-
+            subGroupInfos = registeredPlugin.allClass().stream()
+                .filter(c -> c.getPackageName().contains(subgroup))
+                .min(Comparator.comparingInt(a -> a.getPackageName().length()))
+                .map(clazz -> clazz.getPackage().getDeclaredAnnotation(PluginSubGroup.class))
+                .orElseThrow();
+            plugin.title = !subGroupInfos.title().isEmpty() ? subGroupInfos.title() : subgroup.substring(subgroup.lastIndexOf('.') + 1);
         }
         plugin.group = registeredPlugin.group();
         plugin.description = subGroupInfos != null && !subGroupInfos.description().isEmpty() ? subGroupInfos.description() : registeredPlugin.description();
@@ -65,23 +76,30 @@ public class Plugin {
         plugin.categories = subGroupInfos != null ?
             Arrays.stream(subGroupInfos.categories()).toList() :
             registeredPlugin
-            .allClass()
-            .stream()
-            .map(clazz -> clazz.getPackage().getDeclaredAnnotation(PluginSubGroup.class))
-            .filter(Objects::nonNull)
-            .flatMap(r -> Arrays.stream(r.categories()))
-            .distinct()
-            .toList();
+                .allClass()
+                .stream()
+                .map(clazz -> clazz.getPackage().getDeclaredAnnotation(PluginSubGroup.class))
+                .filter(Objects::nonNull)
+                .flatMap(r -> Arrays.stream(r.categories()))
+                .distinct()
+                .toList();
 
         plugin.subGroup = subgroup;
 
-        plugin.tasks = filterAndGetClassName(registeredPlugin.getTasks()).stream().filter(c -> subgroup == null || c.startsWith(subgroup)).toList();
-        plugin.triggers = filterAndGetClassName(registeredPlugin.getTriggers()).stream().filter(c -> subgroup == null || c.startsWith(subgroup)).toList();
-        plugin.conditions = filterAndGetClassName(registeredPlugin.getConditions()).stream().filter(c -> subgroup == null || c.startsWith(subgroup)).toList();
-        plugin.storages = filterAndGetClassName(registeredPlugin.getStorages()).stream().filter(c -> subgroup == null || c.startsWith(subgroup)).toList();
-        plugin.secrets = filterAndGetClassName(registeredPlugin.getSecrets()).stream().filter(c -> subgroup == null || c.startsWith(subgroup)).toList();
-        plugin.taskRunners = filterAndGetClassName(registeredPlugin.getTaskRunners()).stream().filter(c -> subgroup == null || c.startsWith(subgroup)).toList();
-
+        Predicate<Class<?>> packagePredicate = c -> subgroup == null || c.getPackageName().equals(subgroup);
+        plugin.tasks = filterAndGetTypeWithMetadata(registeredPlugin.getTasks(), packagePredicate);
+        plugin.triggers = filterAndGetTypeWithMetadata(registeredPlugin.getTriggers(), packagePredicate);
+        plugin.conditions = filterAndGetTypeWithMetadata(registeredPlugin.getConditions(), packagePredicate);
+        plugin.storages = filterAndGetTypeWithMetadata(registeredPlugin.getStorages(), packagePredicate);
+        plugin.secrets = filterAndGetTypeWithMetadata(registeredPlugin.getSecrets(), packagePredicate);
+        plugin.taskRunners = filterAndGetTypeWithMetadata(registeredPlugin.getTaskRunners(), packagePredicate);
+        plugin.apps = filterAndGetTypeWithMetadata(registeredPlugin.getApps(), packagePredicate);
+        plugin.appBlocks = filterAndGetTypeWithMetadata(registeredPlugin.getAppBlocks(), packagePredicate);
+        plugin.charts = filterAndGetTypeWithMetadata(registeredPlugin.getCharts(), packagePredicate);
+        plugin.dataFilters = filterAndGetTypeWithMetadata(registeredPlugin.getDataFilters(), packagePredicate);
+        plugin.dataFiltersKPI = filterAndGetTypeWithMetadata(registeredPlugin.getDataFiltersKPI(), packagePredicate);
+        plugin.logExporters = filterAndGetTypeWithMetadata(registeredPlugin.getLogExporters(), packagePredicate);
+        plugin.additionalPlugins = filterAndGetTypeWithMetadata(registeredPlugin.getAdditionalPlugins(), packagePredicate);
 
         return plugin;
     }
@@ -90,15 +108,19 @@ public class Plugin {
      * Filters the given list of class all internal Plugin, as well as, all legacy org.kestra classes.
      * Those classes are only filtered from the documentation to ensure backward compatibility.
      *
-     * @param list The list of classes?
-     * @return  a filtered streams.
+     * @param list              The list of classes?
+     * @return a filtered streams.
      */
-    private static List<String> filterAndGetClassName(final List<? extends Class<?>> list) {
+    private static List<PluginElementMetadata> filterAndGetTypeWithMetadata(final List<? extends Class<?>> list, Predicate<Class<?>> clazzFilter) {
         return list
             .stream()
             .filter(not(io.kestra.core.models.Plugin::isInternal))
-            .map(Class::getName)
-            .filter(c -> !c.startsWith("org.kestra."))
+            .filter(clazzFilter)
+            .filter(c -> !c.getName().startsWith("org.kestra."))
+            .map(c -> new PluginElementMetadata(c.getName(), io.kestra.core.models.Plugin.isDeprecated(c) ? true : null))
             .toList();
+    }
+
+    public record PluginElementMetadata(String cls, Boolean deprecated) {
     }
 }

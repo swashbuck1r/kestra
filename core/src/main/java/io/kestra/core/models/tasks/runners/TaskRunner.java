@@ -4,7 +4,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.Plugin;
+import io.kestra.core.models.PluginVersioning;
 import io.kestra.core.models.WorkerJobLifecycle;
+import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.core.runner.Process;
 import jakarta.validation.constraints.NotBlank;
@@ -23,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static io.kestra.core.utils.WindowsUtils.windowsToUnixPath;
+import static io.kestra.core.utils.RegexPatterns.JAVA_IDENTIFIER_REGEX;
 
 /**
  * Base class for all task runners.
@@ -32,10 +35,13 @@ import static io.kestra.core.utils.WindowsUtils.windowsToUnixPath;
 @Getter
 @NoArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_DEFAULT)
-public abstract class TaskRunner implements Plugin, WorkerJobLifecycle {
+public abstract class TaskRunner<T extends TaskRunnerDetailResult> implements Plugin, PluginVersioning, WorkerJobLifecycle {
     @NotBlank
-    @Pattern(regexp="\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*(\\.\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*)*")
+    @Pattern(regexp = JAVA_IDENTIFIER_REGEX)
     protected String type;
+
+    @PluginProperty(hidden = true, group = PluginProperty.CORE_GROUP)
+    protected String version;
 
     @JsonIgnore
     @Getter(AccessLevel.NONE)
@@ -62,7 +68,7 @@ public abstract class TaskRunner implements Plugin, WorkerJobLifecycle {
      * For remote task runner (like Kubernetes or in a cloud provider), <code>filesToUpload</code> must be used to upload input and namespace files to the runner,
      * and <code>filesToDownload</code> must be used to download output files from the runner.
      */
-    public abstract RunnerResult run(RunContext runContext, TaskCommands taskCommands, List<String> filesToDownload) throws Exception;
+    public abstract TaskRunnerResult<T> run(RunContext runContext, TaskCommands taskCommands, List<String> filesToDownload) throws Exception;
 
     public Map<String, Object> additionalVars(RunContext runContext, TaskCommands taskCommands) throws IllegalVariableEvaluationException {
         if (this.additionalVars == null) {

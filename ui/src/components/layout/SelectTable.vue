@@ -1,40 +1,106 @@
 <template>
-    <div data-component="FILENAME_PLACEHOLDER" class="position-relative">
+    <div class="position-relative">
         <div v-if="hasSelection && data.length" class="bulk-select-header">
             <slot name="select-actions" />
         </div>
 
-        <template v-if="data.length">
-            <el-table
-                ref="table"
-                v-bind="$attrs"
-                :data="data"
-                @selection-change="selectionChanged"
-            >
-                <slot name="expand" v-if="expandable" />
-                <el-table-column type="selection" v-if="selectable" />
-                <slot name="default" />
-            </el-table>
-        </template>
-
-        <NoData v-else />
+        <el-table
+            ref="table"
+            v-bind="$attrs"
+            :data
+            :rowKey
+            :emptyText="data.length === 0 && infiniteScrollLoad === undefined ? noDataText : ''"
+            @selection-change="selectionChanged"
+            v-el-table-infinite-scroll="infiniteScrollLoadWithDisableHandling"
+            :infiniteScrollDisabled="infiniteScrollLoad === undefined ? true : infiniteScrollDisabled"
+            :infiniteScrollDelay="0"
+            :height="data.length === 0 && infiniteScrollLoad === undefined ? '100px' : tableHeight"
+        >
+            <el-table-column type="selection" v-if="selectable && showSelection" reserveSelection />
+            <slot name="default" />
+        </el-table>
     </div>
 </template>
 
 <script>
-    import NoData from "./NoData.vue";
+    import elTableInfiniteScroll from "el-table-infinite-scroll";
 
     export default {
-        components: {NoData},
         data() {
             return {
-                hasSelection: false
+                hasSelection: false,
+                infiniteScrollDisabled: false,
+                tableHeight: this.infiniteScrollLoad === undefined ? "auto" : "100%"
             }
         },
+        expose: ["resetInfiniteScroll", "setSelection", "waitTableRender", "toggleRowExpansion"],
+        computed: {
+            scrollWrapper() {
+                if (this.data) {
+                    return this.$refs.table?.$el?.querySelector(".el-scrollbar__wrap");
+                }
+
+                return undefined;
+            },
+            tableView() {
+                if (this.data) {
+                    return this.scrollWrapper?.querySelector(".el-scrollbar__view");
+                }
+
+                return undefined;
+            },
+            stillHaveDataToFetch() {
+                return this.infiniteScrollDisabled === false;
+            },
+        },
+        directives: {
+            elTableInfiniteScroll
+        },
         methods: {
+            async resetInfiniteScroll() {
+                this.infiniteScrollDisabled = false;
+                this.tableHeight = await this.computeTableHeight();
+            },
+            async toggleRowExpansion(row, expand){
+                this.$refs.table.toggleRowExpansion(row, expand)
+                // this.$refs.table.clearSelection()
+            },
+            async waitTableRender() {
+                if (this.tableView === undefined) {
+                    return Promise.resolve();
+                }
+
+                if (this.tableView.querySelectorAll(".el-table__body > tbody > *")?.length === this.data?.length) {
+                    return Promise.resolve();
+                }
+
+                return new Promise(resolve => {
+                    const observer = new MutationObserver(([{target}]) => {
+                        if (target.childElementCount === this.data?.length) {
+                            observer.disconnect();
+                            resolve();
+                        }
+                    });
+
+                    observer.observe(this.tableView.querySelector(".el-table__body > tbody"), {childList: true});
+                });
+            },
             selectionChanged(selection) {
                 this.hasSelection = selection.length > 0;
                 this.$emit("selection-change", selection);
+            },
+            setSelection(selection) {
+                this.$refs.table.clearSelection();
+                if (Array.isArray(selection)) {
+                    const isFunction = typeof this.rowKey === "function";
+                    selection.forEach(sel => {
+                        const row = this.data.find(r => isFunction 
+                            ? this.rowKey(r) === this.rowKey(sel) 
+                            : r[this.rowKey] === sel[this.rowKey]);
+                        if (row) this.$refs.table.toggleRowSelection(row, true);
+                    });
+                }
+                this.selectionChanged(selection);
             },
             computeHeaderSize() {
                 const tableElement = this.$refs.table?.$el;
@@ -43,26 +109,44 @@
 
                 this.$el.style.setProperty("--table-header-width", `${tableElement.clientWidth}px`);
                 this.$el.style.setProperty("--table-header-height", `${tableElement.querySelector("thead").clientHeight}px`);
+            },
+            async computeTableHeight()  {
+                await this.waitTableRender();
+
+                if (this.infiniteScrollLoad === undefined || this.scrollWrapper === undefined) {
+                    return "auto";
+                }
+
+                if (!this.stillHaveDataToFetch && this.data.length === 0) {
+                    return "calc(var(--table-header-height) + 60px)";
+                }
+
+                return this.stillHaveDataToFetch || this.tableView === undefined ? "100%" : `min(${this.tableView.scrollHeight}px, 100%)`;
+            },
+            async infiniteScrollLoadWithDisableHandling() {
+                let load = await this.infiniteScrollLoad?.();
+                while (load !== undefined && load.length === 0) {
+                    load = await this.infiniteScrollLoad?.();
+                }
+
+                this.infiniteScrollDisabled = load === undefined;
+
+                return load;
             }
         },
         props: {
-            selectable: {
-                type: Boolean,
-                default: true
-            },
-            expandable: {
-                type: Boolean,
-                default: false
-            },
-            data: {
-                type: Array,
-                default: () => []
-            }
+            showSelection: {type: Boolean, default: true},
+            selectable: {type: Boolean, default: true},
+            expandable: {type: Boolean, default: false},
+            data: {type: Array, default: () => []},
+            noDataText: {type: String, default: undefined},
+            infiniteScrollLoad: {type: Function, default: undefined},
+            rowKey: {type: [String, Function], default: "id"}
         },
         emits: [
             "selection-change"
         ],
-        mounted() {
+        async mounted() {
             window.addEventListener("resize", this.computeHeaderSize);
         },
         unmounted() {
@@ -70,6 +154,19 @@
         },
         updated() {
             this.computeHeaderSize();
+        },
+        watch: {
+            data: {
+                async handler() {
+                    this.tableHeight = await this.computeTableHeight();
+                },
+                immediate: true
+            },
+            async stillHaveDataToFetch(newVal, oldVal) {
+                if (oldVal !== newVal) {
+                    this.tableHeight = await this.computeTableHeight();
+                }
+            }
         }
     }
 </script>
@@ -80,9 +177,9 @@
         position: absolute;
         height: var(--table-header-height);
         width: var(--table-header-width);
-        background-color: var(--bs-gray-100-darken-3);
+        background-color: var(--ks-background-table-header);
         border-radius: var(--bs-border-radius-lg) var(--bs-border-radius-lg) 0 0;
-        border-bottom: 1px solid var(--bs-border-color);
+        border-bottom: 1px solid var(--ks-border-primary);
         overflow-x: auto;
 
         & ~ .el-table {

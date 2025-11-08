@@ -1,55 +1,50 @@
 <template>
-    <div v-if="isLocked" v-bind="$attrs">
-        <span ref="slotContainer" class="d-none">
-            <slot />
-        </span>
-        <enterprise-tooltip v-if="term" :disabled="true" :term="term" content="left-menu">
-            <slot />
-        </enterprise-tooltip>
-    </div>
-    <a v-else-if="isHyperLink" v-bind="$attrs">
+    <a v-if="isHyperLink" v-bind="$attrs" ref="slotContainer">
         <slot />
     </a>
-    <router-link v-else v-slot="{href, navigate}" custom :to="$attrs.href">
-        <a v-bind="$attrs" :href="href" @click="navigate">
-            <slot />
+    <router-link v-else :to="$attrs.href as string" custom v-slot="{href:linkHref, navigate}">
+        <a v-bind="$attrs" :href="linkHref" @click="navigate" ref="slotContainer">
+            <EnterpriseBadge :enable="isLocked">
+                <slot />
+            </EnterpriseBadge>
         </a>
     </router-link>
 </template>
 
-<script>
-    export default {
+<script setup lang="ts">
+    import {computed, ref, onMounted} from "vue"
+    import {useRouter} from "vue-router";
+    import EnterpriseBadge from "./EnterpriseBadge.vue";
+
+    defineOptions({
         name: "LeftMenuLink",
-        compatConfig: {
-            MODE: 3,
-            inheritAttrs: false,
-        },
-    }
-</script>
-
-<script setup>
-    import {computed, getCurrentInstance, ref, onMounted} from "vue"
-    import EnterpriseTooltip from "./EnterpriseTooltip.vue";
-
-    const props = defineProps({
-        item: {
-            type: Object,
-            required: true,
-        },
+        inheritAttrs: false,
     })
 
-    const router = getCurrentInstance().appContext.config.globalProperties.$router
+    interface MenuItem{
+        href?: string;
+        external?: boolean;
+        attributes?: {
+            locked?: boolean;
+        };
+    }
 
-    const isHyperLink = computed(() => {
+    const props = defineProps<{
+        item: MenuItem;
+    }>()
+
+    const router = useRouter()
+
+    const isHyperLink = computed<boolean>(() => {
         return !!(!props.item.href || props.item.external || !router)
     })
 
-    const isLocked = computed(() => {
+    const isLocked = computed<boolean>(() => {
         return props.item?.attributes?.locked || false;
     })
 
-    const slotContainer = ref(null)
-    const term = ref()
+    const slotContainer = ref<HTMLAnchorElement | null>(null)
+    const term = ref<string>()
 
     onMounted(() => {
         if (slotContainer?.value?.innerText) {

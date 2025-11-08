@@ -1,147 +1,148 @@
 package io.kestra.jdbc.runner;
 
-import io.kestra.core.queues.QueueException;
-import io.kestra.core.repositories.LocalFlowRepositoryLoader;
-import io.kestra.core.runners.RunnerUtils;
-import io.kestra.core.runners.StandAloneRunner;
-import io.kestra.plugin.core.flow.RetryCaseTest;
-import io.kestra.core.utils.TestsUtils;
-import io.kestra.jdbc.JdbcTestUtils;
+import io.kestra.core.junit.annotations.ExecuteFlow;
+import io.kestra.core.junit.annotations.FlakyTest;
 import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.junit.annotations.LoadFlows;
+import io.kestra.core.models.executions.Execution;
+import io.kestra.core.queues.QueueException;
+import io.kestra.plugin.core.flow.RetryCaseTest;
 import jakarta.inject.Inject;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
-import java.io.IOException;
-import java.net.URISyntaxException;
 import java.util.concurrent.TimeoutException;
 
-@KestraTest
-@TestInstance(TestInstance.Lifecycle.PER_CLASS) // must be per-class to allow calling once init() which took a lot of time
+@KestraTest(startRunner = true)
 public abstract class JdbcRunnerRetryTest {
-    @Inject
-    private StandAloneRunner runner;
-
-    @Inject
-    JdbcTestUtils jdbcTestUtils;
-
-    @Inject
-    protected RunnerUtils runnerUtils;
-
-    @Inject
-    protected LocalFlowRepositoryLoader repositoryLoader;
 
     @Inject
     private RetryCaseTest retryCaseTest;
 
-    @BeforeAll
-    void init() throws IOException, URISyntaxException {
-        jdbcTestUtils.drop();
-        jdbcTestUtils.migrate();
-
-        TestsUtils.loads(repositoryLoader);
-        runner.setSchedulerEnabled(false);
-        runner.run();
+    @Test
+    @ExecuteFlow("flows/valids/retry-success.yaml")
+    void retrySuccess(Execution execution){
+        retryCaseTest.retrySuccess(execution);
     }
 
     @Test
-    void retrySuccess() throws TimeoutException, QueueException {
-        retryCaseTest.retrySuccess();
+    @ExecuteFlow("flows/valids/retry-success-first-attempt.yaml")
+    void retrySuccessAtFirstAttempt(Execution execution){
+        retryCaseTest.retrySuccessAtFirstAttempt(execution);
     }
 
     @Test
-    void retrySuccessAtFirstAttempt() throws TimeoutException, QueueException {
-        retryCaseTest.retrySuccessAtFirstAttempt();
+    @ExecuteFlow("flows/valids/retry-failed.yaml")
+    void retryFailed(Execution execution){
+        retryCaseTest.retryFailed(execution);
     }
 
     @Test
-    void retryFailed() throws TimeoutException, QueueException {
-        retryCaseTest.retryFailed();
+    @ExecuteFlow("flows/valids/retry-random.yaml")
+    void retryRandom(Execution execution){
+        retryCaseTest.retryRandom(execution);
     }
 
     @Test
-    void retryRandom() throws TimeoutException, QueueException {
-        retryCaseTest.retryRandom();
+    @ExecuteFlow("flows/valids/retry-expo.yaml")
+    void retryExpo(Execution execution){
+        retryCaseTest.retryExpo(execution);
     }
 
     @Test
-    void retryExpo() throws TimeoutException, QueueException {
-        retryCaseTest.retryExpo();
+    @ExecuteFlow("flows/valids/retry-fail.yaml")
+    void retryFail(Execution execution){
+        retryCaseTest.retryFail(execution);
     }
 
     @Test
-    void retryFail() throws TimeoutException, QueueException {
-        retryCaseTest.retryFail();
-    }
-
-    @Test
+    @LoadFlows(value = {"flows/valids/retry-new-execution-task-duration.yml"}, tenantId = "retrynewexecutiontaskdurationtenant")
     void retryNewExecutionTaskDuration() throws TimeoutException, QueueException {
-        retryCaseTest.retryNewExecutionTaskDuration();
+        retryCaseTest.retryNewExecutionTaskDuration("retrynewexecutiontaskdurationtenant");
     }
 
     @Test
+    @LoadFlows(value = {"flows/valids/retry-new-execution-task-attempts.yml"}, tenantId = "retrynewexecutiontaskattempts")
     void retryNewExecutionTaskAttempts() throws TimeoutException, QueueException {
-        retryCaseTest.retryNewExecutionTaskAttempts();
+        retryCaseTest.retryNewExecutionTaskAttempts("retrynewexecutiontaskattempts");
     }
 
     @Test
+    @LoadFlows(value = {"flows/valids/retry-new-execution-flow-duration.yml"}, tenantId = "retrynewexecutionflowdurationtenant")
     void retryNewExecutionFlowDuration() throws TimeoutException, QueueException {
-        retryCaseTest.retryNewExecutionFlowDuration();
+        retryCaseTest.retryNewExecutionFlowDuration("retrynewexecutionflowdurationtenant");
     }
 
     @Test
+    @LoadFlows(value = {"flows/valids/retry-new-execution-flow-attempts.yml"}, tenantId = "retrynewexecutionflowattemptstenant")
     void retryNewExecutionFlowAttempts() throws TimeoutException, QueueException {
-        retryCaseTest.retryNewExecutionFlowAttempts();
+        retryCaseTest.retryNewExecutionFlowAttempts("retrynewexecutionflowattemptstenant");
     }
 
     @Test
-    void retryFailedTaskDuration() throws TimeoutException, QueueException {
-        retryCaseTest.retryFailedTaskDuration();
+    @ExecuteFlow("flows/valids/retry-failed-task-duration.yml")
+    void retryFailedTaskDuration(Execution execution){
+        retryCaseTest.retryFailedTaskDuration(execution);
     }
 
     @Test
-    void retryFailedTaskAttempts() throws TimeoutException, QueueException {
-        retryCaseTest.retryFailedTaskAttempts();
+    @ExecuteFlow("flows/valids/retry-failed-task-attempts.yml")
+    void retryFailedTaskAttempts(Execution execution){
+        retryCaseTest.retryFailedTaskAttempts(execution);
     }
 
     @Test
-    void retryFailedFlowDuration() throws TimeoutException, QueueException {
-        retryCaseTest.retryFailedFlowDuration();
+    @ExecuteFlow("flows/valids/retry-failed-flow-duration.yml")
+    void retryFailedFlowDuration(Execution execution){
+        retryCaseTest.retryFailedFlowDuration(execution);
     }
 
     @Test
-    void retryFailedFlowAttempts() throws TimeoutException, QueueException {
-        retryCaseTest.retryFailedFlowAttempts();
+    @ExecuteFlow("flows/valids/retry-failed-flow-attempts.yml")
+    void retryFailedFlowAttempts(Execution execution){
+        retryCaseTest.retryFailedFlowAttempts(execution);
     }
 
     @Test
-    void retryFlowable() throws TimeoutException, QueueException {
-        retryCaseTest.retryFlowable();
+    @ExecuteFlow("flows/valids/retry-flowable.yaml")
+    void retryFlowable(Execution execution){
+        retryCaseTest.retryFlowable(execution);
     }
 
     @Test
-    void retrySubflow() throws TimeoutException, QueueException {
-        retryCaseTest.retrySubflow();
+    @ExecuteFlow("flows/valids/retry-subflow.yaml")
+    void retrySubflow(Execution execution){
+        retryCaseTest.retrySubflow(execution);
     }
 
     @Test
-    void retryFlowableChild() throws TimeoutException, QueueException {
-        retryCaseTest.retryFlowableChild();
+    @ExecuteFlow("flows/valids/retry-flowable-child.yaml")
+    void retryFlowableChild(Execution execution){
+        retryCaseTest.retryFlowableChild(execution);
     }
 
     @Test
-    void retryFlowableNestedChild() throws TimeoutException, QueueException {
-        retryCaseTest.retryFlowableNestedChild();
+    @ExecuteFlow("flows/valids/retry-flowable-nested-child.yaml")
+    void retryFlowableNestedChild(Execution execution){
+        retryCaseTest.retryFlowableNestedChild(execution);
     }
 
     @Test
-    void retryFlowableParallel() throws TimeoutException, QueueException {
-        retryCaseTest.retryFlowableParallel();
+    @ExecuteFlow("flows/valids/retry-flowable-parallel.yaml")
+    void retryFlowableParallel(Execution execution){
+        retryCaseTest.retryFlowableParallel(execution);
     }
 
     @Test
-    void retryDynamicTask() throws TimeoutException, QueueException {
-        retryCaseTest.retryDynamicTask();
+    @ExecuteFlow("flows/valids/retry-dynamic-task.yaml")
+    void retryDynamicTask(Execution execution){
+        retryCaseTest.retryDynamicTask(execution);
+    }
+
+    @FlakyTest(description = "it seems this flow sometimes stay stuck in RUNNING")
+    @Test
+    @ExecuteFlow("flows/valids/retry-with-flowable-errors.yaml")
+    void retryWithFlowableErrors(Execution execution){
+        retryCaseTest.retryWithFlowableErrors(execution);
     }
 }

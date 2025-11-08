@@ -5,36 +5,93 @@ import App from "./App.vue"
 import initApp from "./utils/init"
 import configureAxios from "./utils/axios"
 import routes from "./routes/routes";
-import de from "./translations/de.json";
 import en from "./translations/en.json";
-import es from "./translations/es.json";
-import fr from "./translations/fr.json";
-import hi from "./translations/hi.json";
-import it from "./translations/it.json";
-import ja from "./translations/ja.json";
-import ko from "./translations/ko.json";
-import pl from "./translations/pl.json";
-import pt from "./translations/pt.json";
-import ru from "./translations/ru.json";
-import zh_CN from "./translations/zh_CN.json"
-import stores from "./stores/store";
+import {setupTenantRouter} from "./composables/useTenant";
+import * as BasicAuth from "./utils/basicAuth";
+import {useMiscStore} from "override/stores/misc";
+
+import {shouldShowWelcome, isDashboardRoute} from "./utils/welcomeGuard";
 
 const app = createApp(App)
-const translations = {...de,...en,...es,...fr,...hi,...it,...ja,...ko,...pl,...pt,...ru,...zh_CN}
 
-const {store, router} = initApp(app, routes, stores, translations);
+const handleAuthError = (error, to) => {
+    if (error.message?.includes("401")) {
+        BasicAuth.logout()
+        const fromPath = to.fullPath !== "/ui/login" ? to.fullPath : undefined
+        return {name: "login", query: fromPath ? {from: fromPath} : {}}
+    }
+    return {name: "setup"}
+}
 
-// Passing toast to VUEX store to be used in modules
-store.$toast = app.config.globalProperties.$toast();
+initApp(app, routes, null, en).then(({router, piniaStore}) => {
+    router.beforeEach(async (to, from, next) => {
+        if (["login", "setup"].includes(to.name)) {
+            return next();
+        }
 
-// axios
-configureAxios((instance) => {
-    app.use(VueAxios, instance);
-    app.provide("axios", instance);
+        if(to.path === from.path && to.query === from.query) {
+            return next(); // Prevent navigation if the path and query are the same
+        }
 
-    store.$http = app.$http;
-    store.axios = app.axios;
-}, store, router);
+        try {
+            const miscStore = useMiscStore();
+            const configs = await miscStore.loadConfigs();
 
-// mount
-app.mount("#app")
+            if(!configs.isBasicAuthInitialized) {
+                // Since, Configs takes preference
+                // we need to check if any regex validation error in BE.
+                const validationErrors = await miscStore.loadBasicAuthValidationErrors()
+
+                if (validationErrors?.length > 0) {
+                    // Creds exist in config but failed validation
+                    // Route to login to show errors
+                    return next({name: "login"})
+                } else {
+                    // No creds in config - redirect to set it up
+                    return next({name: "setup"})
+                }
+            }
+
+            const hasCredentials = BasicAuth.isLoggedIn()
+
+            if (!hasCredentials) {
+                const fromPath = to.fullPath !== "/ui/login" ? to.fullPath : undefined
+                return next({name: "login", query: fromPath ? {from: fromPath} : {}})
+            }
+
+            // Check if basic auth setup is still in progress
+            const isSetupInProgress = localStorage.getItem("basicAuthSetupInProgress")
+            if (isSetupInProgress === "true") {
+                return next({name: "setup"})
+            }
+
+            if (isDashboardRoute(to.name) && await shouldShowWelcome()) {
+                return next({
+                    name: "welcome",
+                    params: {tenant: to.params.tenant}
+                });
+            } 
+
+            return next();
+        } catch (error) {
+            console.error("Error during authentication check:", error);
+            return next(handleAuthError(error, to))
+        }
+    });
+
+    // Setup tenant router
+    setupTenantRouter(router, app);
+
+    // axios
+    configureAxios((instance) => {
+        app.use(VueAxios, instance);
+        app.provide("axios", instance);
+        piniaStore.use(({store: piniaStoreLocal}) => {
+            piniaStoreLocal.$http = instance;
+        });
+    }, null, router, true);
+
+    // mount
+    app.mount("#app")
+});
+

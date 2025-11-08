@@ -1,5 +1,6 @@
 package io.kestra.plugin.core.flow;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.kestra.core.exceptions.DeserializationException;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.exceptions.InternalException;
@@ -10,6 +11,7 @@ import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.NextTaskRun;
 import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.flows.Flow;
+import io.kestra.core.models.flows.FlowWithSource;
 import io.kestra.core.models.hierarchies.GraphCluster;
 import io.kestra.core.models.hierarchies.RelationType;
 import io.kestra.core.models.tasks.FlowableTask;
@@ -51,7 +53,7 @@ import static io.kestra.core.utils.Rethrow.throwFunction;
 @NoArgsConstructor
 @Slf4j
 @Schema(
-    title = "Include a reusable template inside a flow."
+    title = "Include a reusable template inside a flow (Deprecated)."
 )
 @Deprecated
 @Plugin(
@@ -61,23 +63,23 @@ import static io.kestra.core.utils.Rethrow.throwFunction;
             code = """
                 id: template
                 namespace: company.team
-                
+
                 inputs:
                   - id: with_string
                     type: STRING
-                
+
                 tasks:
                   - id: 1_return
                     type: io.kestra.plugin.core.debug.Return
                     format: "{{ task.id }} > {{ taskrun.startDate }}"
-                
+
                   - id: 2_template
                     type: io.kestra.plugin.core.flow.Template
                     namespace: company.team
                     templateId: template
                     args:
                       my_forward: "{{ inputs.with_string }}"
-                
+
                   - id: 3_end
                     type: io.kestra.plugin.core.debug.Return
                     format: "{{ task.id }} > {{ taskrun.startDate }}"
@@ -92,16 +94,25 @@ public class Template extends Task implements FlowableTask<Template.Output> {
     @PluginProperty
     protected List<Task> errors;
 
+    @Valid
+    @JsonProperty("finally")
+    @Getter(AccessLevel.NONE)
+    protected List<Task> _finally;
+
+    public List<Task> getFinally() {
+        return this._finally;
+    }
+
     @NotNull
     @Schema(
-        title = "The namespace of the template."
+        title = "The namespace of the template"
     )
     @PluginProperty
     private String namespace;
 
     @NotNull
     @Schema(
-        title = "The ID of the template."
+        title = "The ID of the template"
     )
     @PluginProperty
     private String templateId;
@@ -111,7 +122,7 @@ public class Template extends Task implements FlowableTask<Template.Output> {
     private String tenantId;
 
     @Schema(
-        title = "The arguments to pass to the template.",
+        title = "The arguments to pass to the template",
         description = "You can provide a list of named arguments (like function argument on dev) allowing to rename " +
             "outputs of current flow for this template.\n" +
             "For example, if you declare this use of template like this: \n" +
@@ -137,6 +148,7 @@ public class Template extends Task implements FlowableTask<Template.Output> {
             subGraph,
             template.getTasks(),
             template.getErrors(),
+            template.getFinally(),
             taskRun,
             execution
         );
@@ -175,6 +187,7 @@ public class Template extends Task implements FlowableTask<Template.Output> {
             execution,
             this.childTasks(runContext, parentTaskRun),
             FlowableUtils.resolveTasks(template.getErrors(), parentTaskRun),
+            FlowableUtils.resolveTasks(template.getFinally(), parentTaskRun),
             parentTaskRun
         );
     }
@@ -235,7 +248,8 @@ public class Template extends Task implements FlowableTask<Template.Output> {
         }
     }
 
-    public static Flow injectTemplate(Flow flow, Execution execution, TriFunction<String, String, String, io.kestra.core.models.templates.Template> provider) throws InternalException {
+    @SuppressWarnings("deprecated")
+    public static FlowWithSource injectTemplate(Flow flow, Execution execution, TriFunction<String, String, String, io.kestra.core.models.templates.Template> provider) throws InternalException {
         AtomicReference<Flow> flowReference = new AtomicReference<>(flow);
 
         boolean haveTemplate = true;
@@ -269,7 +283,8 @@ public class Template extends Task implements FlowableTask<Template.Output> {
             haveTemplate = !templates.isEmpty();
         }
 
-        return flowReference.get();
+        Flow f = flowReference.get();
+        return FlowWithSource.of(f, f.sourceOrGenerateIfNull());
     }
 
     /**
@@ -312,7 +327,7 @@ public class Template extends Task implements FlowableTask<Template.Output> {
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The arguments passed to the template."
+            title = "The arguments passed to the template"
         )
         private final Map<String, Object> args;
     }

@@ -1,60 +1,54 @@
 <template>
-    <el-tabs data-component="FILENAME_PLACEHOLDER" class="router-link" :class="{top: top}" v-model="activeName" :type="type">
+    <el-tabs class="router-link" :class="{top: top}" v-model="activeName" :type="type">
         <el-tab-pane
             v-for="tab in tabs.filter(t => !t.hidden)"
             :key="tab.name"
             :label="tab.title"
             :name="tab.name || 'default'"
-            :disabled="tab.disabled || tab.locked"
-            :data-component="`FILENAME_PLACEHOLDER#${tab}`"
+            :disabled="tab.disabled"
         >
             <template #label>
-                <component :is="embedActiveTab || tab.disabled || tab.locked ? 'a' : 'router-link'" @click="embeddedTabChange(tab)" :to="embedActiveTab ? undefined : to(tab)" :data-test-id="tab.name">
+                <component :is="embedActiveTab || tab.disabled ? 'a' : 'router-link'" @click="embeddedTabChange(tab)" :to="embedActiveTab ? undefined : to(tab)" :data-test-id="tab.name">
                     <el-tooltip v-if="tab.disabled && tab.props && tab.props.showTooltip" :content="$t('add-trigger-in-editor')" placement="top">
                         <span><strong>{{ tab.title }}</strong></span>
                     </el-tooltip>
-                    <span v-if="!tab.hideTitle">
-                        <enterprise-tooltip :disabled="tab.locked" :term="tab.name" content="tabs">
-                            {{ tab.title }}
-                            <el-badge :type="tab.count > 0 ? 'danger' : 'primary'" :value="tab.count" v-if="tab.count !== undefined" />
-                        </enterprise-tooltip>
-                    </span>
+                    <EnterpriseBadge :enable="tab.locked">
+                        {{ tab.title }}
+                        <el-badge :type="tab.count > 0 ? 'danger' : 'primary'" :value="tab.count" v-if="tab.count !== undefined" />
+                    </EnterpriseBadge>
                 </component>
             </template>
         </el-tab-pane>
     </el-tabs>
-
-    <section v-if="isEditorActiveTab || activeTab.component" data-component="FILENAME_PLACEHOLDER#container" ref="container" v-bind="$attrs" :class="{...containerClass, 'd-flex flex-row': isEditorActiveTab, 'namespace-editor': isNamespaceEditor, 'maximized': activeTab.maximized}">
-        <EditorSidebar v-if="isEditorActiveTab" ref="sidebar" :style="`flex: 0 0 calc(${explorerWidth}% - 11px);`" :current-n-s="namespace" />
-        <div v-if="isEditorActiveTab && explorerVisible" @mousedown.prevent.stop="dragSidebar" class="slider" />
-        <div v-if="isEditorActiveTab" :style="`flex: 1 1 ${100 - (isEditorActiveTab && explorerVisible ? explorerWidth : 0)}%;`">
-            <component
-                v-bind="{...activeTab.props, ...attrsWithoutClass}"
-                v-on="activeTab['v-on'] ?? {}"
-                ref="tabContent"
-                :is="activeTab.component"
-                embed
-            />
-        </div>
+    <section v-if="isEditorActiveTab || activeTab.component" ref="container" v-bind="$attrs" :class="{...containerClass, 'maximized': activeTab.maximized}">
+        <BlueprintDetail
+            v-if="selectedBlueprintId"
+            :blueprintId="selectedBlueprintId"
+            blueprintType="community"
+            @back="selectedBlueprintId = undefined"
+            :combinedView="true"
+            :kind="activeTab.props.blueprintKind"
+            :embed="activeTab.props && activeTab.props.embed !== undefined ? activeTab.props.embed : true"
+        />
         <component
             v-else
             v-bind="{...activeTab.props, ...attrsWithoutClass}"
             v-on="activeTab['v-on'] ?? {}"
             ref="tabContent"
             :is="activeTab.component"
+            :namespace="namespaceToForward"
+            @go-to-detail="blueprintId => selectedBlueprintId = blueprintId"
             :embed="activeTab.props && activeTab.props.embed !== undefined ? activeTab.props.embed : true"
         />
     </section>
 </template>
 
 <script>
-    import {mapState, mapMutations} from "vuex";
-
-    import EditorSidebar from "./inputs/EditorSidebar.vue";
-    import EnterpriseTooltip from "./EnterpriseTooltip.vue";
+    import EnterpriseBadge from "./EnterpriseBadge.vue";
+    import BlueprintDetail from "./flows/blueprints/BlueprintDetail.vue";
 
     export default {
-        components: {EditorSidebar, EnterpriseTooltip},
+        components: {EnterpriseBadge,BlueprintDetail},
         props: {
             tabs: {
                 type: Array,
@@ -95,6 +89,7 @@
         data() {
             return {
                 activeName: undefined,
+                selectedBlueprintId : undefined
             }
         },
         watch: {
@@ -111,26 +106,6 @@
             this.setActiveName();
         },
         methods: {
-            ...mapMutations("editor", ["changeExplorerWidth"]),
-            dragSidebar(e){
-                const SELF = this;
-
-                let dragX = e.clientX;
-
-                let blockWidth = this.$refs.sidebar.$el.offsetWidth;
-                let parentWidth = this.$refs.container.offsetWidth;
-
-                let blockWidthPercent = (blockWidth / parentWidth) * 100;
-
-                document.onmousemove = function onMouseMove(e) {
-                    let percent = blockWidthPercent + ((e.clientX - dragX) / parentWidth) * 100;
-                    SELF.changeExplorerWidth(percent)
-                };
-
-                document.onmouseup = () => {
-                    document.onmousemove = document.onmouseup = null;
-                };
-            },
             embeddedTabChange(tab) {
                 this.$emit("changed", tab);
             },
@@ -147,33 +122,37 @@
                 } else {
                     return {
                         name: this.routeName || this.$route.name,
-                        params: {...this.$route.params, ...{tab: tab.name}},
-                        query: {...(tab.query || {})}
+                        params: {...this.$route.params, tab: tab.name},
+                        query: {...tab.query}
                     };
                 }
             },
+            getTabClasses(tab) {
+                if(tab.locked) return {"px-0": true};
+                return {"container": true, "mt-4": true};
+            }
         },
         computed: {
-            ...mapState({
-                explorerVisible: (state) => state.editor.explorerVisible,
-                explorerWidth: (state) => state.editor.explorerWidth,
-            }),
             containerClass() {
-                if (this.activeTab.containerClass) {
-                    return {[this.activeTab.containerClass] : true};
-                }
-
-                return {"container" : true, "mt-4": true};
+                return this.getTabClasses(this.activeTab);
             },
             activeTab() {
                 return this.tabs
                     .filter(tab => (this.embedActiveTab ?? this.$route.params.tab) === tab.name)[0] || this.tabs[0];
             },
             isEditorActiveTab() {
-                return this.activeTab.name === "editor";
-            },
-            isNamespaceEditor(){
-                return this.activeTab?.props?.isNamespace === true;
+                const TAB = this.activeTab.name;
+                const ROUTE = this.$route.name;
+
+                if (["flows/update", "flows/create"].includes(ROUTE)) {
+                    return TAB === "edit";
+                } else if (
+                    ["namespaces/update", "namespaces/create"].includes(ROUTE)
+                ) {
+                    if (TAB === "files") return true;
+                }
+
+                return false;
             },
             // Those are passed to the rendered component
             // We need to exclude class as it's already applied to this component root div
@@ -182,55 +161,64 @@
                     Object.entries(this.$attrs)
                         .filter(([key]) => key !== "class")
                 );
+            },
+            namespaceToForward(){
+                return this.activeTab.props?.namespace ?? this.namespace;
+                // in the special case of Namespace creation on Namespaces page, the tabs are loaded before the namespace creation
+                // in this case this.props.namespace will be used
             }
         }
     };
 </script>
 
-<style lang="scss" scoped>
-    :deep(.el-tabs) {
-        .el-tabs__item.is-disabled {
-            &:after {
-                top: 0;
-                content: "";
-                position: absolute;
-                display: block;
-                width: 100%;
-                height: 100%;
-                z-index: 1000;
-            }
+<style scoped lang="scss">
+section.container.mt-4:has(> section.empty) {
+    margin: 0 !important;
+    padding: 0 !important;
+}
 
-            a {
-                color: var(--el-text-color-disabled);
-            }
+:deep(.el-tabs) {
+    .el-tabs__item.is-disabled {
+        &:after {
+            top: 0;
+            content: "";
+            position: absolute;
+            display: block;
+            width: 100%;
+            height: 100%;
+            z-index: 1000;
+        }
+
+        a {
+            color: var(--ks-content-inactive);
         }
     }
+}
 
-    .slider {
-        flex: 0 0 3px;
-        border-radius: 0.15rem;
-        margin: 0 4px;
-        background-color: var(--bs-border-color);
-        border: none;
-        cursor: col-resize;
-        user-select: none; /* disable selection */
+.maximized {
+    margin: 0 !important;
+    padding: 0;
+    flex-grow: 1;
+}
 
-        &:hover {
-            background-color: var(--bs-secondary);
-        }
-    }
+.editor-splitter {
+    height: 100%;
 
-    .namespace-editor {
-        margin: 0 !important;
-        padding: 0;
-        flex-grow: 1;
-    }
-
-    .maximized {
-        margin: 0 !important;
-        padding: 0;
+    :deep(.el-splitter-panel) {
         display: flex;
-        flex-grow: 1;
         flex-direction: column;
     }
+}
+
+.sidebar {
+    height: 100%;
+    width: 100%;
+}
+
+:deep(.el-tabs__nav-next),
+:deep(.el-tabs__nav-prev) {
+    &.is-disabled {
+        display: none;
+    }
+}
 </style>

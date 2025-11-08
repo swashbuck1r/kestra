@@ -6,8 +6,8 @@
                     v-if="currentStep(tour)"
                     :key="tour.currentStep"
                     :step="currentStep(tour)"
-                    :is-first="tour.isFirst"
-                    :is-last="tour.isLast"
+                    :isFirst="tour.isFirst"
+                    :isLast="tour.isLast"
                     :labels="tour.labels"
                     :highlight="tour.highlight"
                     :class="{
@@ -15,6 +15,7 @@
                         fullscreen: currentStep(tour).fullscreen,
                         color: tour.currentStep === 1,
                         condensed: currentStep(tour).condensed,
+                        second: tour.currentStep === 1
                     }"
                 >
                     <template #header>
@@ -27,7 +28,11 @@
                         <div
                             v-if="currentStep(tour).title"
                             class="title"
-                            :class="{dark: currentStep(tour).keepDark, empty: !flows.length}"
+                            :class="{
+                                dark: currentStep(tour).keepDark,
+                                empty: !flows.length,
+                                fixed: tour.currentStep === 1
+                            }"
                         >
                             <div v-if="currentStep(tour).icon">
                                 <img
@@ -65,9 +70,9 @@
                                     >
                                         <TaskIcon
                                             :cls="task"
-                                            :icons="icons"
+                                            :icons="pluginsStore.icons"
                                             :variable="ICON_COLOR"
-                                            only-icon
+                                            onlyIcon
                                         />
                                     </div>
                                 </div>
@@ -130,7 +135,6 @@
     import {computed, getCurrentInstance, onMounted, ref, watch} from "vue";
 
     import {useRouter} from "vue-router";
-    import {useStore} from "vuex";
     import {useI18n} from "vue-i18n";
 
     import Wrapper from "./components/buttons/Wrapper.vue";
@@ -146,7 +150,7 @@
 
     import {pageFromRoute} from "../../utils/eventsRouter";
 
-    import TaskIcon from "@kestra-io/ui-libs/src/components/misc/TaskIcon.vue";
+    import {TaskIcon} from "@kestra-io/ui-libs";
     import Animation from "../../assets/onboarding/animation.gif";
 
     import LightningBolt from "../../assets/onboarding/icons/lightning-bolt.svg";
@@ -154,21 +158,26 @@
     import ArrowTop from "../../assets/onboarding/icons/arrow-top.svg";
     import ArrowRight from "../../assets/onboarding/icons/arrow-right.svg";
 
-    const router = useRouter();
-    const store = useStore();
+    import {useApiStore} from "../../stores/api";
+    import {usePluginsStore} from "../../stores/plugins";
+    import {useCoreStore} from "../../stores/core";
 
-    const icons = computed(() => store.state.plugin.icons);
+    const router = useRouter();
+
+    const coreStore = useCoreStore();
+    const apiStore = useApiStore();
+    const pluginsStore = usePluginsStore();
 
     const {t} = useI18n({useScope: "global"});
 
     const updateStatus = () => localStorage.setItem("tourDoneOrSkip", "true");
     const dispatchEvent = (step, action) =>
-        store.dispatch("api/events", {
+        apiStore.events({
             type: "ONBOARDING",
             onboarding: {
                 step,
                 action,
-                template: store.getters["core/guidedProperties"].template,
+                template: coreStore.guidedProperties.template,
             },
             page: pageFromRoute(router.currentRoute.value),
         });
@@ -204,7 +213,7 @@
     };
 
     const activeFlow = ref(0);
-    const flows = computed(() => store.state.core.tutorialFlows);
+    const flows = computed(() => coreStore.tutorialFlows);
 
     const allTasks = (tasks) => {
         const uniqueTypes = new Set();
@@ -237,8 +246,6 @@
         case "business_processes":
         case "data_engineering_pipeline":
             return 94;
-        case "business_automation":
-            return 134;
         case "dwh_and_analytics":
         case "file_processing":
         case "infrastructure_automation":
@@ -250,9 +257,10 @@
     });
 
     watch(activeFlow, async (newValue) => {
-        store.commit("core/setGuidedProperties", {
+        coreStore.guidedProperties = {
+            ...coreStore.guidedProperties,
             template: flows.value[newValue].id,
-        });
+        };
     });
 
     const properties = (step, c = true, p = true, s = false) => ({
@@ -261,14 +269,16 @@
         ...(p ? {primary: t(`onboarding.steps.${step}.primary`)} : {}),
         ...(s ? {secondary: t(`onboarding.steps.${step}.secondary`)} : {}),
     });
-    const wait = (time) =>
+    const wait = (time = 200) =>
         new Promise((resolve) => setTimeout(() => resolve(true), time));
 
     const toggleScroll = (enabled = true) => {
         const wrapper = document.getElementById("app");
-        enabled
-            ? wrapper?.classList.remove("no-scroll")
-            : wrapper?.classList.add("no-scroll");
+        if(enabled){
+            wrapper?.classList.remove("no-scroll")
+        }else{
+            wrapper?.classList.add("no-scroll");
+        }
     };
 
     const steps = [
@@ -279,12 +289,12 @@
             before: () => {
                 toggleScroll(false);
 
-                store.commit("core/setGuidedProperties", {
+                coreStore.guidedProperties = {
+                    ...coreStore.guidedProperties,
                     tourStarted: true,
-                    fullscreen: true,
-                });
+                };
 
-                wait(1);
+                return wait();
             },
         },
         {
@@ -297,21 +307,22 @@
                     params: {
                         namespace: "tutorial",
                         id: flows.value[activeFlow.value]?.id,
-                        tab: "editor",
+                        tab: "edit",
                     },
                 });
-                store.commit("core/setGuidedProperties", {
+                coreStore.guidedProperties = {
+                    ...coreStore.guidedProperties,
                     manuallyContinue: true,
-                });
+                };
             },
             before: () => {
-                store.commit("editor/updateOnboarding"),
-                store.commit("core/setGuidedProperties", {
+                coreStore.guidedProperties = {
+                    ...coreStore.guidedProperties,
                     tourStarted: true,
                     template: flows.value[activeFlow.value]?.id,
-                });
+                };
 
-                wait(1);
+                return wait();
             },
         },
         {
@@ -322,14 +333,14 @@
             params: {...STEP_OPTIONS, placement: "right"},
             before: () => {
                 toggleScroll();
-                wait(1);
+                return wait();
             },
         },
         {
             ...properties(3),
             icon: ArrowRight,
-            target: ".combined-right-view.topology-display",
-            highlightElement: ".combined-right-view.topology-display",
+            target: "#topologyWrapper",
+            highlightElement: "#topologyWrapper",
             params: {...STEP_OPTIONS, placement: "left"},
         },
         {
@@ -342,7 +353,7 @@
             highlightElement: ".top-bar",
             params: {...STEP_OPTIONS, placement: "bottom"},
             before: () => {
-                wait(500);
+                return wait();
             },
         },
         {
@@ -354,10 +365,12 @@
             target: ".flow-run-trigger-button",
             highlightElement: "#execute-flow-dialog",
             params: {
-                modifiers: [{name: "offset", options: {offset: () => [0, 50]}}],
+                modifiers: [{name: "offset", options: {offset: () => [0, 70]}}],
                 placement: "bottom",
             },
-            before: () => wait(1),
+            before: () => {
+                return wait()
+            },
         },
         {
             ...properties(6, true, true, true),
@@ -373,7 +386,7 @@
                 ],
                 placement: "bottom",
             },
-            before: () => wait(1),
+            before: () => wait(),
         },
     ];
 
@@ -382,7 +395,11 @@
         dispatchEvent(tour.currentStep, "next");
 
         const nextStep = currentStep(tour).nextStep;
-        !nextStep ? TOURS[TOUR_NAME].nextStep() : nextStep();
+        if(nextStep) {
+            nextStep()
+        } else {
+            TOURS[TOUR_NAME].nextStep()
+        }
     };
     const previousStep = (current) => {
         dispatchEvent(current, "previous");
@@ -394,9 +411,13 @@
         updateStatus();
         dispatchEvent(current, "skip");
 
-        store.commit("core/setGuidedProperties", {tourStarted: false});
+        coreStore.guidedProperties = {
+            ...coreStore.guidedProperties,
+            tourStarted: false,
+        };
 
         TOURS[TOUR_NAME].stop();
+        router.push({name: "flows/create"});
     };
     const finishTour = (current, push = true) => {
         toggleScroll();
@@ -405,7 +426,10 @@
         dispatchEvent(current, "finish");
         dispatchEvent(current, "executed");
 
-        store.commit("core/setGuidedProperties", {tourStarted: false});
+        coreStore.guidedProperties = {
+            ...coreStore.guidedProperties,
+            tourStarted: false,
+        };
 
         TOURS[TOUR_NAME].finish();
 
@@ -418,7 +442,7 @@
     };
 
     onMounted(() => {
-        store.dispatch("core/readTutorialFlows");
+        coreStore.readTutorialFlows();
     });
 </script>
 
@@ -449,8 +473,16 @@ $flow-image-size-container: 36px;
     height: 100%;
     display: flex;
     flex-direction: column;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
+
+    &.second {
+        justify-content: flex-start;
+
+        & .flows {
+            margin-top: 160px !important;
+        }
+    }
 }
 
 #app .v-step {
@@ -458,7 +490,13 @@ $flow-image-size-container: 36px;
     padding: 2rem;
 
     &.last {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
         max-width: $last-step-max-width;
+        z-index: 9999;
+        box-shadow: 0 0 20px var(--ks-card-shadow);
     }
 
     &.condensed {
@@ -499,6 +537,14 @@ $flow-image-size-container: 36px;
             color: $white;
         }
 
+        &.fixed {
+            position: fixed;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 1rem;
+        }
+
         @keyframes jump {
             0% {
                 transform: translateY(0);
@@ -517,7 +563,7 @@ $flow-image-size-container: 36px;
 
         margin-bottom: 2rem;
         text-align: center;
-        line-height: 3rem;
+        line-height: 2.5rem;
         font-size: 2rem;
         font-weight: 500;
         color: $color;
@@ -549,8 +595,11 @@ $flow-image-size-container: 36px;
     & div.flows {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        padding: 2rem;
+        padding: 0 0 0 2rem;
+        margin: 2rem 0;
         gap: 1rem;
+        max-height: 60dvh;
+        overflow-y: auto;
 
         & .el-button.card {
             height: unset;

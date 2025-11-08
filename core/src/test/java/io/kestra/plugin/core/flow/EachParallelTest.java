@@ -1,38 +1,40 @@
 package io.kestra.plugin.core.flow;
 
-import io.kestra.core.models.flows.State;
-import io.kestra.core.queues.QueueException;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.kestra.core.junit.annotations.ExecuteFlow;
+import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.Execution;
-import io.kestra.core.runners.AbstractMemoryRunnerTest;
+import io.kestra.core.models.flows.State;
+import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
-import java.util.concurrent.TimeoutException;
+@KestraTest(startRunner = true)
+public class EachParallelTest {
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.is;
-
-public class EachParallelTest extends AbstractMemoryRunnerTest {
     @Test
-    void parallel() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "each-parallel");
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
-        assertThat(execution.getTaskRunList(), hasSize(8));
+    @ExecuteFlow("flows/valids/each-parallel.yaml")
+    void parallel(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(8);
     }
 
     @Test
-    void parallelNested() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "each-parallel-nested");
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
-        assertThat(execution.getTaskRunList(), hasSize(11));
+    @ExecuteFlow("flows/valids/each-parallel-nested.yaml")
+    void parallelNested(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(11);
     }
 
     @Test
-    void parallelInteger() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "each-parallel-Integer");
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
+    @ExecuteFlow("flows/valids/each-parallel-Integer.yml")
+    void parallelInteger(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+    }
+
+    @Test
+    @ExecuteFlow("flows/valids/each-parallel-disabled-tasks.yaml")
+    void disabledTasks(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(2);
     }
 }

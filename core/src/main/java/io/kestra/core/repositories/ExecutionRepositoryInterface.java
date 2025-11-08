@@ -1,14 +1,15 @@
 package io.kestra.core.repositories;
 
+import io.kestra.core.models.QueryFilter;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.executions.statistics.DailyExecutionStatistics;
 import io.kestra.core.models.executions.statistics.ExecutionCount;
-import io.kestra.core.models.executions.statistics.ExecutionCountStatistics;
 import io.kestra.core.models.executions.statistics.Flow;
 import io.kestra.core.models.flows.FlowScope;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.utils.DateUtils;
+import io.kestra.plugin.core.dashboard.data.Executions;
 import io.micronaut.data.model.Pageable;
 import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotNull;
@@ -23,9 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
-public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Execution> {
-    Boolean isTaskRunEnabled();
-
+public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Execution>, QueryBuilderInterface<Executions.Fields> {
     default Optional<Execution> findById(String tenantId, String id) {
         return findById(tenantId, id, false);
     }
@@ -50,7 +49,7 @@ public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Ex
      *
      * @param tenantId  The tenant ID.
      * @param namespace The namespace of execution.
-     * @param flowId    The flow ID  of execution.
+     * @param flowId    The flow ID of execution.
      * @param states     The execution's states.
      * @return an optional {@link Execution}.
      */
@@ -58,17 +57,8 @@ public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Ex
 
     ArrayListTotal<Execution> find(
         Pageable pageable,
-        @Nullable String query,
         @Nullable String tenantId,
-        @Nullable List<FlowScope> scope,
-        @Nullable String namespace,
-        @Nullable String flowId,
-        @Nullable ZonedDateTime startDate,
-        @Nullable ZonedDateTime endDate,
-        @Nullable List<State.Type> state,
-        @Nullable Map<String, String> labels,
-        @Nullable String triggerExecutionId,
-        @Nullable ChildFilter childFilter
+        @Nullable List<QueryFilter> filters
     );
 
     default Flux<Execution> find(
@@ -102,25 +92,13 @@ public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Ex
         boolean allowDeleted
     );
 
-    ArrayListTotal<TaskRun> findTaskRun(
-        Pageable pageable,
-        @Nullable String query,
-        @Nullable String tenantId,
-        @Nullable String namespace,
-        @Nullable String flowId,
-        @Nullable ZonedDateTime startDate,
-        @Nullable ZonedDateTime endDate,
-        @Nullable List<State.Type> states,
-        @Nullable Map<String, String> labels,
-        @Nullable String triggerExecutionId,
-        @Nullable ChildFilter childFilter
-    );
+    Flux<Execution> findAllAsync(@Nullable String tenantId);
 
     Execution delete(Execution execution);
 
     Integer purge(Execution execution);
 
-    Integer maxTaskRunSetting();
+    Integer purge(List<Execution> executions);
 
     List<DailyExecutionStatistics> dailyStatisticsForAllTenants(
         @Nullable String query,
@@ -128,8 +106,7 @@ public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Ex
         @Nullable String flowId,
         @Nullable ZonedDateTime startDate,
         @Nullable ZonedDateTime endDate,
-        @Nullable DateUtils.GroupType groupBy,
-        boolean isTaskRun
+        @Nullable DateUtils.GroupType groupBy
     );
 
     List<DailyExecutionStatistics> dailyStatistics(
@@ -141,31 +118,7 @@ public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Ex
         @Nullable ZonedDateTime startDate,
         @Nullable ZonedDateTime endDate,
         @Nullable DateUtils.GroupType groupBy,
-        List<State.Type> state,
-        boolean isTaskRun
-    );
-
-    List<Execution> lastExecutions(
-        @Nullable String tenantId,
-        @Nullable List<FlowFilter> flows
-    );
-
-    Map<String, Map<String, List<DailyExecutionStatistics>>> dailyGroupByFlowStatistics(
-        @Nullable String query,
-        @Nullable String tenantId,
-        @Nullable String namespace,
-        @Nullable String flowId,
-        @Nullable List<FlowFilter> flows,
-        @Nullable ZonedDateTime startDate,
-        @Nullable ZonedDateTime endDate,
-        boolean groupByNamespaceOnly
-    );
-
-    Map<String, ExecutionCountStatistics> executionCountsGroupedByNamespace(
-        @Nullable String tenantId,
-        @Nullable String namespace,
-        @Nullable ZonedDateTime startDate,
-        @Nullable ZonedDateTime endDate
+        List<State.Type> state
     );
 
     @Getter
@@ -198,4 +151,9 @@ public interface ExecutionRepositoryInterface extends SaveRepositoryInterface<Ex
         CHILD,
         MAIN
     }
+
+    List<Execution> lastExecutions(
+        String tenantId,
+        @Nullable List<FlowFilter> flows
+    );
 }

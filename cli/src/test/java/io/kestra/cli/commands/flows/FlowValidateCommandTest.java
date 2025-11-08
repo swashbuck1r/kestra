@@ -7,9 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.core.Is.is;
-import static org.hamcrest.core.StringContains.containsString;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class FlowValidateCommandTest {
     @Test
@@ -24,8 +22,28 @@ class FlowValidateCommandTest {
             };
             Integer call = PicocliRunner.call(FlowValidateCommand.class, ctx, args);
 
-            assertThat(call, is(0));
-            assertThat(out.toString(), containsString("✓ - io.kestra.cli / include"));
+            assertThat(call).isZero();
+            assertThat(out.toString()).contains("✓ - io.kestra.cli / include");
+        }
+    }
+
+    @Test
+     // github action kestra-io/validate-action requires being able to validate Flows from OSS CLI against a remote EE instance
+    void runForEEInstance() {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(out));
+
+        try (ApplicationContext ctx = ApplicationContext.builder().deduceEnvironment(false).start()) {
+            String[] args = {
+                "--tenant",
+                "some-ee-tenant",
+                "--local",
+                "src/test/resources/helper/include.yaml"
+            };
+            Integer call = PicocliRunner.call(FlowValidateCommand.class, ctx, args);
+
+            assertThat(call).isZero();
+            assertThat(out.toString()).contains("✓ - io.kestra.cli / include");
         }
     }
 
@@ -41,10 +59,10 @@ class FlowValidateCommandTest {
             };
             Integer call = PicocliRunner.call(FlowValidateCommand.class, ctx, args);
 
-            assertThat(call, is(0));
-            assertThat(out.toString(), containsString("✓ - system / warning"));
-            assertThat(out.toString(), containsString("⚠ - tasks[0] is deprecated"));
-            assertThat(out.toString(), containsString("ℹ - io.kestra.core.tasks.log.Log is replaced by io.kestra.plugin.core.log.Log"));
+            assertThat(call).isZero();
+            assertThat(out.toString()).contains("✓ - system / warning");
+            assertThat(out.toString()).contains("⚠ - tasks[0] is deprecated");
+            assertThat(out.toString()).contains("ℹ - io.kestra.core.tasks.log.Log is replaced by io.kestra.plugin.core.log.Log");
         }
     }
 }

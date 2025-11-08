@@ -1,20 +1,18 @@
 package io.kestra.core.repositories;
 
+import io.kestra.core.models.QueryFilter;
 import io.kestra.core.models.SearchResult;
 import io.kestra.core.models.executions.Execution;
-import io.kestra.core.models.flows.Flow;
-import io.kestra.core.models.flows.FlowForExecution;
-import io.kestra.core.models.flows.FlowScope;
-import io.kestra.core.models.flows.FlowWithSource;
+import io.kestra.core.models.flows.*;
+import io.kestra.plugin.core.dashboard.data.Flows;
 import io.micronaut.data.model.Pageable;
-
 import jakarta.annotation.Nullable;
 import jakarta.validation.ConstraintViolationException;
+
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
-public interface FlowRepositoryInterface {
+public interface FlowRepositoryInterface extends QueryBuilderInterface<Flows.Fields> {
 
     Optional<Flow> findById(String tenantId, String namespace, String id, Optional<Integer> revision, Boolean allowDeleted);
 
@@ -28,8 +26,8 @@ public interface FlowRepositoryInterface {
      * Used only if result is used internally and not exposed to the user.
      * It is useful when we want to restart/resume a flow.
      */
-    default Flow findByExecutionWithoutAcl(Execution execution) {
-        Optional<Flow> find = this.findByIdWithoutAcl(
+    default FlowWithSource findByExecutionWithoutAcl(Execution execution) {
+        Optional<FlowWithSource> find = this.findByIdWithSourceWithoutAcl(
             execution.getTenantId(),
             execution.getNamespace(),
             execution.getFlowId(),
@@ -106,6 +104,8 @@ public interface FlowRepositoryInterface {
 
     List<FlowWithSource> findAllWithSource(String tenantId);
 
+    List<FlowWithSource> findAllWithSourceWithNoAcl(String tenantId);
+
     List<Flow> findAllForAllTenants();
 
     List<FlowWithSource> findAllWithSourceForAllTenants();
@@ -118,14 +118,6 @@ public interface FlowRepositoryInterface {
      */
     int count(@Nullable  String tenantId);
 
-    /**
-     * Counts the total number of flows for the given namespace.
-     *
-     * @param tenantId the tenant ID.
-     * @return The count.
-     */
-    int countForNamespace(@Nullable  String tenantId, @Nullable String namespace);
-
     List<Flow> findByNamespace(String tenantId, String namespace);
 
     List<Flow> findByNamespacePrefix(String tenantId, String namespacePrefix);
@@ -134,21 +126,18 @@ public interface FlowRepositoryInterface {
 
     List<FlowWithSource> findByNamespaceWithSource(String tenantId, String namespace);
 
+    List<FlowWithSource> findByNamespacePrefixWithSource(String tenantId, String namespace);
+
     ArrayListTotal<Flow> find(
         Pageable pageable,
-        @Nullable String query,
         @Nullable String tenantId,
-        @Nullable List<FlowScope> scope,
-        @Nullable String namespace,
-        @Nullable Map<String, String> labels
+        @Nullable List<QueryFilter> filters
     );
 
-    List<FlowWithSource> findWithSource(
-        @Nullable String query,
+    ArrayListTotal<FlowWithSource> findWithSource(
+        Pageable pageable,
         @Nullable String tenantId,
-        @Nullable List<FlowScope> scope,
-        @Nullable String namespace,
-        @Nullable Map<String, String> labels
+        @Nullable List<QueryFilter> filters
     );
 
     ArrayListTotal<SearchResult<Flow>> findSourceCode(Pageable pageable, @Nullable String query, @Nullable String tenantId, @Nullable String namespace);
@@ -169,9 +158,11 @@ public interface FlowRepositoryInterface {
             .toList();
     }
 
-    FlowWithSource create(Flow flow, String flowSource, Flow flowWithDefaults);
+    FlowWithSource create(GenericFlow flow);
 
-    FlowWithSource update(Flow flow, Flow previous, String flowSource, Flow flowWithDefaults) throws ConstraintViolationException;
+    FlowWithSource update(GenericFlow flow, FlowInterface previous) throws ConstraintViolationException;
 
-    FlowWithSource delete(FlowWithSource flow);
+    FlowWithSource delete(FlowInterface flow);
+
+    Boolean existAnyNoAcl(String tenantId);
 }

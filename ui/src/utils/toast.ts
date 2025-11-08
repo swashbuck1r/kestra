@@ -1,10 +1,12 @@
 import {ElNotification, ElMessageBox, ElTable, ElTableColumn} from "element-plus"
-import {h} from "vue"
+import {App, h} from "vue"
 import {useI18n} from "vue-i18n"
 
-// eslint-disable-next-line no-unused-vars
-const makeToast = (t: (t:string, options?: Record<string, string>) => string) => ({
-    _wrap: function(message) {
+import Markdown from "../components/layout/Markdown.vue"
+
+
+export const makeToast = (t: (t:string, options?: Record<string, string>) => string) => ({
+    _wrap: function(message:string) {
         if(Array.isArray(message) && message.length > 0){
             return h(
                 ElTable,
@@ -21,88 +23,87 @@ const makeToast = (t: (t:string, options?: Record<string, string>) => string) =>
                 ]
             )
         } else {
-            return h("span", {innerHTML: message});
+            return h(Markdown, {source: message});
         }
     },
-    confirm: function(message, callback, renderVNode = false, type = "warning" as const) {
-        ElMessageBox
-            .confirm(renderVNode ? message : this._wrap(message || t("toast confirm")), t("confirmation"), {type})
-            .then(() => callback())
+    _MarkdownWrap: function(message:string) {
+        return h(Markdown, {source: message})
     },
-    saved: function(name, title, options) {
+    confirm: function(message:string, callback: () => Promise<any>, type = "warning" as const, showCancelButton = true) {
+        return ElMessageBox
+            .confirm(typeof message === "string" ? this._MarkdownWrap(message || t("toast confirm")) : h(message), t("confirmation"), {type, showCancelButton})
+            .then(() => callback())
+            .catch(() => {
+                // User cancelled
+            });
+    },
+    saved: function(name:string, title?:string, options?: Record<string, any>) {
         ElNotification.closeAll();
         const message = options?.multiple
             ? t("multiple saved done", {name})
             : t("saved done", {name: name});
         ElNotification({
-            ...{
+
                 title: title || t("saved"),
                 message: this._wrap(message),
                 position: "bottom-right",
                 type: "success",
-            },
-            ...(options || {})
+            ...options
         });
     },
-    deleted: function(name, title, options) {
+    deleted: function(name:string, title?:string, options?: Record<string, any>) {
         ElNotification({
-            ...{
+
                 title: title || t("deleted"),
                 message: this._wrap(t("deleted confirm", {name: name})),
                 position: "bottom-right",
                 type: "success",
-            },
-            ...(options || {})
+            ...options
         })
     },
-    success: function(message, title, options) {
+    success: function(message:string, title?:string, options?: Record<string, any>) {
         ElNotification({
-            ...{
+
                 title: title || t("success"),
                 message: this._wrap(message),
                 position: "bottom-right",
                 type: "success",
-            },
-            ...(options || {})
+            ...options
         })
     },
-    warning: function(message, title, options) {
+    warning: function(message:string, title?:string, options?: Record<string, any>) {
         ElNotification({
-            ...{
+
                 title: title || t("warning"),
                 message: this._wrap(message),
                 position: "bottom-right",
                 type: "warning",
-            },
-            ...(options || {})
+            ...options
         })
     },
-    error: function(message, title, options) {
+    error: function(message:string, title?:string, options?: Record<string, any>) {
         ElNotification({
-            ...{
-                title: title || t("error"),
+
+                title: title ?? t("error"),
                 message: this._wrap(message),
                 position: "bottom-right",
                 type: "error",
                 duration: 0,
-                customClass: "large"
-            },
-            ...(options || {})
+                customClass: "large",
+            ...options
         })
     }
 })
 
 export default {
-    install(app) {
-        app.config.globalProperties.$toast = function() {
-            const self = this;
-
-            return makeToast(self.$t);
+    install(app: App) {
+        app.config.globalProperties.$toast = () => {
+            return makeToast(app.config.globalProperties.$t);
         }
     }
 }
 
 export function useToast(){
-    const {t} = useI18n()
+    const {t} = useI18n({useScope: "global"});
     return makeToast(t)
 }

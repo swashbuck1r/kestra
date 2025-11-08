@@ -4,9 +4,9 @@
             effect="light"
             placement="bottom"
             :persistent="false"
-            :hide-after="0"
+            :hideAfter="0"
             transition=""
-            :popper-class="tooltipContent === '' ? 'd-none' : 'tooltip-stats'"
+            :popperClass="tooltipContent === '' ? 'd-none' : 'tooltip-stats'"
         >
             <template #content>
                 <span v-html="tooltipContent" />
@@ -19,13 +19,14 @@
 <script>
     import {computed, defineComponent, ref, getCurrentInstance} from "vue";
     import {Bar} from "vue-chartjs";
-    import Utils from "../../utils/utils.js";
+    import {useMiscStore} from "override/stores/misc";
+    import Utils from "../../utils/utils";
     import {
         defaultConfig,
         tooltip,
         getFormat,
-    } from "../../utils/charts.js";
-    import Logs from "../../utils/logs.js";
+    } from "../dashboard/composables/charts";
+    import * as Logs from "../../utils/logs";
 
     export default defineComponent({
         components: {Bar},
@@ -50,6 +51,8 @@
             const chartRef = ref();
             const tooltipContent = ref("");
             const dataReady = computed(() => props.data.length > 0)
+
+            const miscStore = useMiscStore();
 
             const options = computed(() => defaultConfig({
                 plugins: {
@@ -84,7 +87,7 @@
                         position: "right",
                     }
                 },
-            }))
+            }, miscStore.theme));
 
             const chartData = computed(() => {
                 let datasets = props.data

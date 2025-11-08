@@ -1,11 +1,15 @@
 package io.kestra.core.models.triggers;
 
+import io.kestra.core.exceptions.InvalidTriggerConfigurationException;
 import io.kestra.core.models.HasUID;
 import io.kestra.core.models.conditions.ConditionContext;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.Flow;
+import io.kestra.core.models.flows.FlowId;
+import io.kestra.core.models.flows.FlowInterface;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.utils.IdUtils;
+import io.kestra.plugin.core.trigger.Schedule;
 import io.micronaut.core.annotation.Nullable;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
@@ -25,9 +29,6 @@ public class Trigger extends TriggerContext implements HasUID {
     private String executionId;
 
     @Nullable
-    private State.Type executionCurrentState;
-
-    @Nullable
     private Instant updatedDate;
 
     @Nullable
@@ -40,7 +41,6 @@ public class Trigger extends TriggerContext implements HasUID {
     protected Trigger(TriggerBuilder<?, ?> b) {
         super(b);
         this.executionId = b.executionId;
-        this.executionCurrentState = b.executionCurrentState;
         this.updatedDate = b.updatedDate;
         this.evaluateRunningDate = b.evaluateRunningDate;
     }
@@ -84,13 +84,13 @@ public class Trigger extends TriggerContext implements HasUID {
     }
 
     public String flowUid() {
-        return Flow.uidWithoutRevision(this.getTenantId(), this.getNamespace(), this.getFlowId());
+        return FlowId.uidWithoutRevision(this.getTenantId(), this.getNamespace(), this.getFlowId());
     }
 
     /**
      * Create a new Trigger with no execution information and no evaluation lock.
      */
-    public static Trigger of(Flow flow, AbstractTrigger abstractTrigger) {
+    public static Trigger of(FlowInterface flow, AbstractTrigger abstractTrigger) {
         return Trigger.builder()
             .tenantId(flow.getTenantId())
             .namespace(flow.getNamespace())
@@ -145,7 +145,6 @@ public class Trigger extends TriggerContext implements HasUID {
             .date(trigger.getDate())
             .nextExecutionDate(trigger.getNextExecutionDate())
             .executionId(execution.getId())
-            .executionCurrentState(execution.getState().getCurrent())
             .updatedDate(Instant.now())
             .backfill(trigger.getBackfill())
             .stopAfter(trigger.getStopAfter())
@@ -167,11 +166,16 @@ public class Trigger extends TriggerContext implements HasUID {
     }
 
     // Used to update trigger in flowListeners
-    public static Trigger of(Flow flow, AbstractTrigger abstractTrigger, ConditionContext conditionContext, Optional<Trigger> lastTrigger) throws Exception {
+    public static Trigger of(FlowInterface flow, AbstractTrigger abstractTrigger, ConditionContext conditionContext, Optional<Trigger> lastTrigger) throws Exception {
         ZonedDateTime nextDate = null;
+        boolean disabled = lastTrigger.map(TriggerContext::getDisabled).orElse(Boolean.FALSE);
 
         if (abstractTrigger instanceof PollingTriggerInterface pollingTriggerInterface) {
-            nextDate = pollingTriggerInterface.nextEvaluationDate(conditionContext, Optional.empty());
+            try {
+                nextDate = pollingTriggerInterface.nextEvaluationDate(conditionContext, Optional.empty());
+            } catch (InvalidTriggerConfigurationException e) {
+                disabled = true;
+            }
         }
 
         return Trigger.builder()
@@ -182,37 +186,36 @@ public class Trigger extends TriggerContext implements HasUID {
             .date(ZonedDateTime.now().truncatedTo(ChronoUnit.SECONDS))
             .nextExecutionDate(nextDate)
             .stopAfter(abstractTrigger.getStopAfter())
-            .disabled(lastTrigger.map(TriggerContext::getDisabled).orElse(Boolean.FALSE))
+            .disabled(disabled)
             .backfill(null)
             .build();
     }
 
-    public static Trigger update(Trigger currentTrigger, Trigger newTrigger, ZonedDateTime nextExecutionDate) throws Exception {
-        Trigger updated = currentTrigger;
+    public Trigger resetExecution(Flow flow, Execution execution, ConditionContext conditionContext) {
+        boolean disabled = this.getStopAfter() != null ? this.getStopAfter().contains(execution.getState().getCurrent()) : this.getDisabled();
+        if (!disabled) {
+            AbstractTrigger abstractTrigger = flow.findTriggerByTriggerId(this.getTriggerId());
+            if (abstractTrigger == null) {
+                throw new IllegalArgumentException("Unable to find trigger with id '" + this.getTriggerId() + "'");
+            }
+            // If trigger is a schedule and execution ended after the next execution date
+            else if (abstractTrigger instanceof Schedule schedule &&
+                this.getNextExecutionDate() != null &&
+                execution.getState().getEndDate().get().isAfter(this.getNextExecutionDate().toInstant())
+            ) {
+                RecoverMissedSchedules recoverMissedSchedules = Optional.ofNullable(schedule.getRecoverMissedSchedules())
+                    .orElseGet(() -> schedule.defaultRecoverMissedSchedules(conditionContext.getRunContext()));
 
-        // If a backfill is created, we update the currentTrigger
-        // and set the nextExecutionDate() as the previous one
-        if (newTrigger.getBackfill() != null) {
-            updated = currentTrigger.toBuilder()
-                .backfill(
-                    newTrigger
-                        .getBackfill()
-                        .toBuilder()
-                        .end(newTrigger.getBackfill().getEnd() != null ? newTrigger.getBackfill().getEnd() : ZonedDateTime.now())
-                        .currentDate(
-                            newTrigger.getBackfill().getStart()
-                        )
-                        .previousNextExecutionDate(
-                            currentTrigger.getNextExecutionDate())
-                        .build())
-                .build();
+                ZonedDateTime previousDate = schedule.previousEvaluationDate(conditionContext);
+
+                if (recoverMissedSchedules.equals(RecoverMissedSchedules.LAST)) {
+                    return resetExecution(execution.getState().getCurrent(), previousDate);
+                } else if (recoverMissedSchedules.equals(RecoverMissedSchedules.NONE)) {
+                    return resetExecution(execution.getState().getCurrent(), schedule.nextEvaluationDate(conditionContext, Optional.empty()));
+                }
+            }
         }
-
-        return updated.toBuilder()
-            .nextExecutionDate(newTrigger.getDisabled() ?
-                null : nextExecutionDate)
-            .disabled(newTrigger.getDisabled())
-            .build();
+        return resetExecution(execution.getState().getCurrent());
     }
 
     public Trigger resetExecution(State.Type executionEndState) {
@@ -251,27 +254,22 @@ public class Trigger extends TriggerContext implements HasUID {
             .build();
     }
 
-    public Trigger initBackfill(Trigger newTrigger) {
-        // If a backfill is created, we update the currentTrigger
+    public Trigger withBackfill(final Backfill backfill) {
+        Trigger updated = this;
+        // If a backfill is created, we update the trigger
         // and set the nextExecutionDate() as the previous one
-        if (newTrigger.getBackfill() != null) {
-
-            return this.toBuilder()
+        if (backfill != null) {
+            updated = this.toBuilder()
                 .backfill(
-                    newTrigger
-                        .getBackfill()
+                    backfill
                         .toBuilder()
-                        .end(newTrigger.getBackfill().getEnd() != null ? newTrigger.getBackfill().getEnd() : ZonedDateTime.now())
-                        .currentDate(
-                            newTrigger.getBackfill().getStart()
-                        )
-                        .previousNextExecutionDate(
-                            this.getNextExecutionDate())
+                        .end(backfill.getEnd() != null ? backfill.getEnd() : ZonedDateTime.now())
+                        .currentDate(backfill.getStart())
+                        .previousNextExecutionDate(this.getNextExecutionDate())
                         .build())
                 .build();
         }
-
-        return this;
+        return updated;
     }
 
     // if the next date is after the backfill end, we remove the backfill

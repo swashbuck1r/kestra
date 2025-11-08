@@ -9,242 +9,298 @@
             />
         </el-select>
         <el-row :gutter="15">
-            <el-col :span="12" v-if="revisionLeft !== undefined">
+            <el-col :span="12" v-if="revisionLeftIndex !== undefined">
                 <div class="revision-select mb-3">
-                    <el-select v-model="revisionLeft">
+                    <el-select v-model="revisionLeftIndex" @change="addQuery">
                         <el-option
-                            v-for="item in options"
+                            v-for="item in options(revisionRightIndex)"
                             :key="item.value"
                             :label="item.text"
                             :value="item.value"
                         />
                     </el-select>
                     <el-button-group>
-                        <el-button :icon="FileCode" @click="seeRevision(revisionLeft, revisionLeftText)">
-                            <span class="d-none d-lg-inline-block">&nbsp;{{ $t('see full revision') }}</span>
+                        <el-button :icon="FileCode" @click="seeRevision(revisionLeftIndex, revisionLeftText)">
+                            <span class="d-none d-lg-inline-block">&nbsp;{{ t('see full revision') }}</span>
                         </el-button>
-                        <el-button :icon="Restore" :disabled="revisionNumber(revisionLeft) === flow.revision" @click="restoreRevision(revisionLeft, revisionLeftText)">
-                            <span class="d-none d-lg-inline-block">&nbsp;{{ $t('restore') }}</span>
+                        <el-button :icon="Restore" :disabled="revisionNumber(revisionLeftIndex) === flow?.revision" @click="restoreRevision(revisionLeftIndex, revisionLeftText)">
+                            <span class="d-none d-lg-inline-block">&nbsp;{{ t('restore') }}</span>
                         </el-button>
                     </el-button-group>
                 </div>
 
-                <el-alert v-if="revisionLeftError" type="warning" show-icon :closable="false" class="mb-0 mt-3">
-                    <strong>{{ $t('invalid source') }}</strong><br>
-                    {{ revisionLeftError }}
-                </el-alert>
-
-                <crud class="mt-3" permission="FLOW" :detail="{namespace: $route.params.namespace, flowId: $route.params.id, revision: revisionNumber(revisionLeft)}" />
+                <Crud class="mt-3" permission="FLOW" :detail="{namespace: route.params.namespace, flowId: route.params.id, revision: revisionNumber(revisionLeftIndex)}" />
             </el-col>
-            <el-col :span="12" v-if="revisionRight !== undefined">
+            <el-col :span="12" v-if="revisionRightIndex !== undefined">
                 <div class="revision-select mb-3">
-                    <el-select v-model="revisionRight">
+                    <el-select v-model="revisionRightIndex" @change="addQuery">
                         <el-option
-                            v-for="item in options"
+                            v-for="item in options(revisionLeftIndex)"
                             :key="item.value"
                             :label="item.text"
                             :value="item.value"
                         />
                     </el-select>
                     <el-button-group>
-                        <el-button :icon="FileCode" @click="seeRevision(revisionRight, revisionRightText)">
-                            <span class="d-none d-lg-inline-block">&nbsp;{{ $t('see full revision') }}</span>
+                        <el-button :icon="FileCode" @click="seeRevision(revisionRightIndex, revisionRightText)">
+                            <span class="d-none d-lg-inline-block">&nbsp;{{ t('see full revision') }}</span>
                         </el-button>
-                        <el-button :icon="Restore" :disabled="revisionNumber(revisionRight) === flow.revision" @click="restoreRevision(revisionRight, revisionRightText)">
-                            <span class="d-none d-lg-inline-block">&nbsp;{{ $t('restore') }}</span>
+                        <el-button :icon="Restore" :disabled="revisionNumber(revisionRightIndex) === flow?.revision" @click="restoreRevision(revisionRightIndex, revisionRightText)">
+                            <span class="d-none d-lg-inline-block">&nbsp;{{ t('restore') }}</span>
                         </el-button>
                     </el-button-group>
                 </div>
 
-                <el-alert v-if="revisionRightError" type="warning" show-icon :closable="false" class="mb-0 mt-3">
-                    <strong>{{ $t('invalid source') }}</strong><br>
-                    {{ revisionRightError }}
-                </el-alert>
-
-                <crud class="mt-3" permission="FLOW" :detail="{namespace: $route.params.namespace, flowId: $route.params.id, revision: revisionNumber(revisionRight)}" />
+                <Crud class="mt-3" permission="FLOW" :detail="{namespace: route.params.namespace, flowId: route.params.id, revision: revisionNumber(revisionRightIndex)}" />
             </el-col>
         </el-row>
 
-        <editor
+        <Editor
             class="mt-1"
-            :diff-side-by-side="sideBySide"
-            :model-value="revisionRightText"
+            v-if="revisionLeftText && revisionRightText && !isLoadingRevisions"
+            :diffSideBySide="sideBySide"
+            :modelValue="revisionRightText"
             :original="revisionLeftText"
+            readOnly
             lang="yaml"
-            :show-doc="false"
+            :showDoc="false"
         />
 
-        <drawer v-if="isModalOpen" v-model="isModalOpen">
+        <div v-if="isLoadingRevisions" class="text-center p-4">
+            <span class="ml-2">Loading revisions...</span>
+        </div>
+
+        <Drawer v-if="isModalOpen" v-model="isModalOpen">
             <template #header>
-                <h5>{{ $t("revision") + `: ` + revision }}</h5>
+                <h5>{{ t("revision") + `: ` + revision }}</h5>
             </template>
 
-            <editor v-model="revisionYaml" lang="yaml" :full-height="false" :input="true" :navbar="false" :read-only="true" />
-        </drawer>
+            <Editor v-model="revisionYaml" lang="yaml" :fullHeight="false" :input="true" :navbar="false" :readOnly="true" />
+        </Drawer>
     </div>
     <div v-else>
-        <el-alert class="mb-0" show-icon :closable="false">
-            {{ $t('no revisions found') }}
+        <el-alert class="mb-0" showIcon :closable="false">
+            {{ t('no revisions found') }}
         </el-alert>
     </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+    import {ref, computed, watch} from "vue";
+    import {useI18n} from "vue-i18n";
+    import {useRoute, useRouter} from "vue-router";
     import FileCode from "vue-material-design-icons/FileCode.vue";
     import Restore from "vue-material-design-icons/Restore.vue";
-</script>
-
-<script>
-    import {mapState} from "vuex";
-    import YamlUtils from "../../utils/yamlUtils";
     import Editor from "../../components/inputs/Editor.vue";
     import Crud from "override/components/auth/Crud.vue";
     import Drawer from "../Drawer.vue";
-    import {saveFlowTemplate} from "../../utils/flowTemplate";
 
-    export default {
-        components: {Editor, Crud, Drawer},
-        created() {
-            this.load();
-        },
-        methods: {
-            load() {
-                this.$store
-                    .dispatch("flow/loadRevisions", this.$route.params)
-                    .then(() => {
-                        const revisionLength = this.revisions.length;
-                        if (revisionLength > 0) {
-                            this.revisionRight = revisionLength - 1;
-                        }
-                        if (revisionLength > 1) {
-                            this.revisionLeft = revisionLength - 2;
-                        }
-                        if (this.$route.query.revisionRight) {
-                            this.revisionRight = this.revisionIndex(
-                                this.$route.query.revisionRight
-                            );
-                            if (
-                                !this.$route.query.revisionLeft &&
-                                this.revisionRight > 0
-                            ) {
-                                this.revisionLeft = this.revisions.length - 1;
-                            }
-                        }
-                        if (this.$route.query.revisionLeft) {
-                            this.revisionLeft = this.revisionIndex(
-                                this.$route.query.revisionLeft
-                            );
-                        }
-                    });
-            },
-            revisionIndex(revision) {
-                const rev = parseInt(revision);
-                for (let i = 0; i < this.revisions.length; i++) {
-                    if (rev === this.revisions[i].revision) {
-                        return i;
-                    }
-                }
-            },
-            revisionNumber(index) {
-                return this.revisions[index].revision;
-            },
-            seeRevision(index, revision) {
-                this.revisionId = index
-                this.revisionYaml = revision
-                this.revision = this.revisionNumber(index)
-                this.isModalOpen = true;
-            },
-            restoreRevision(index, revision) {
-                this.$toast()
-                    .confirm(this.$t("restore confirm", {revision: this.revisionNumber(index)}), () => {
-                        return saveFlowTemplate(this, revision, "flow")
-                            .then(this.load)
-                            .then(() => {
-                                this.$router.push({query: {}});
-                            });
-                    });
-            },
-            addQuery() {
-                this.$router.push({query: {
-                    ...this.$route.query,
-                    ...{revisionLeft:this.revisionLeft + 1, revisionRight: this.revisionRight + 1}}
-                });
-            },
-            transformRevision(source) {
-                if (source.exception) {
-                    return YamlUtils.stringify(YamlUtils.parse(source.source));
-                }
+    import {useToast} from "../../utils/toast";
+    import {useFlowStore} from "../../stores/flow";
 
-                return source.source ? source.source : YamlUtils.stringify(source);
+    interface Revision {
+        revision: number;
+        source?: string;
+    }
+
+    const {t} = useI18n();
+    const route = useRoute();
+    const router = useRouter();
+    const toast = useToast();
+
+    const revisionLeftIndex = ref();
+    const revisionRightIndex = ref();
+    const revisionLeftText = ref();
+    const revisionRightText = ref();
+    const revision = ref();
+    const revisions = ref<(Revision)[]>([]);
+    const revisionId = ref();
+    const revisionYaml = ref();
+    const sideBySide = ref(true);
+    const isLoadingRevisions = ref(false);
+    const displayTypes = [
+        {value: true, text: t("side-by-side")},
+        {value: false, text:  t("line-by-line")},
+    ];
+    const isModalOpen = ref(false);
+
+    const flowStore = useFlowStore();
+    const flow = computed(() => flowStore.flow);
+
+    function load() {
+        if (!flow.value) {
+            return;
+        }
+        const currentRevision = flow.value.revision;
+
+        revisions.value = [...Array(currentRevision).keys()].map(((_, i) => {
+            if (currentRevision === revisionNumber(i) && flow.value?.revision !== undefined && flow.value?.source) {
+                const val = flow.value as Revision
+                return val;
             }
-        },
-        computed: {
-            ...mapState("flow", ["flow", "revisions"]),
-            options() {
-                return (this.revisions || []).map((revision, x) => {
-                    return {
-                        value: x,
-                        text: revision.revision,
-                    };
+
+            if(revisions.value[i] && revisions.value[i].revision === i + 1) {
+                return revisions.value[i];
+            }
+
+            return {revision: i + 1};
+        }));
+
+        if (route.query.revisionRight) {
+            revisionRightIndex.value = revisionIndex(
+                route.query.revisionRight.toString()
+            );
+            if (
+                !route.query.revisionLeft &&
+                revisionRightIndex.value > 0
+            ) {
+                revisionLeftIndex.value = revisionRightIndex.value - 1;
+            }
+        } else if (currentRevision && currentRevision > 0) {
+            revisionRightIndex.value = currentRevision - 1;
+        }
+
+        if (route.query.revisionLeft) {
+            revisionLeftIndex.value = revisionIndex(
+                route.query.revisionLeft.toString()
+            );
+        } else if (currentRevision && currentRevision > 1) {
+            revisionLeftIndex.value = currentRevision - 2;
+        }
+    }
+
+    function revisionIndex(revision: string) {
+        const revisionInt = parseInt(revision);
+
+        if (revisionInt < 1 || revisionInt > revisions.value?.length) {
+            return -1;
+        }
+
+        return revisionInt - 1;
+    }
+
+    function revisionNumber(index: number) {
+        return index + 1;
+    }
+
+    function seeRevision(index: number, revisionParam: Revision) {
+        revisionId.value = index
+        revisionYaml.value = revisionParam
+        revision.value = revisionNumber(index)
+        isModalOpen.value = true;
+    }
+
+    function restoreRevision(index: number, revisionSource: string) {
+        toast.confirm(t("restore confirm", {revision: revisionNumber(index)}), () => {
+            return flowStore.saveFlow({flow: revisionSource})
+                .then((response:any) => {
+                    toast.saved(response.id);
+                    flowStore.flowYaml = response.source;
+                    load()
+                })
+                .then(() => {
+                    router.push({query: {}});
                 });
-            },
-            revisionLeftError() {
-                if (this.revisionLeft === undefined) {
-                    return "";
-                }
+        })
+    }
 
-                return this.revisions[this.revisionLeft].exception
-            },
-            revisionRightError() {
-                if (this.revisionRight === undefined) {
-                    return "";
-                }
+    function addQuery() {
+        if (isLoadingRevisions.value) {
+            return;
+        }
 
-                return this.revisions[this.revisionRight].exception
-            },
-            revisionLeftText() {
-                if (this.revisionLeft === undefined) {
-                    return "";
-                }
+        router.push({query: {
+            ...route.query,
+            revisionLeft: revisionLeftIndex.value + 1,
+            revisionRight: revisionRightIndex.value + 1
+        }});
+    }
 
-                return this.transformRevision(this.revisions[this.revisionLeft]);
-            },
-            revisionRightText() {
-                if (this.revisionRight === undefined) {
-                    return "";
-                }
+    async function fetchRevision(revision: string) {
+        const revisionFetched = await flowStore.loadFlow({
+            namespace: flow.value?.namespace ?? "",
+            id: flow.value?.id ?? "",
+            revision,
+            allowDeleted: true,
+            store: false
+        });
+        revisions.value[revisionIndex(revision)] = revisionFetched;
 
-                return this.transformRevision(this.revisions[this.revisionRight]);
-            },
-        },
-        data() {
-            return {
-                revisionLeft: undefined,
-                revisionRight: undefined,
-                revision: undefined,
-                revisionId: undefined,
-                revisionYaml: undefined,
-                sideBySide: true,
-                displayTypes: [
-                    {value: true, text: this.$t("side-by-side")},
-                    {value: false, text:  this.$t("line-by-line")},
-                ],
-                isModalOpen: false
-            };
-        },
-    };
+        return revisionFetched;
+    }
+
+    function options(excludeRevisionIndex: number | undefined) {
+        return revisions.value
+            .filter((_, index) => index !== excludeRevisionIndex)
+            .map(({revision}) => ({value: revisionIndex(revision.toString()), text: revision}));
+    }
+
+    async function loadRevisionContent(index: number | undefined) {
+        if (index === undefined) {
+            return undefined;
+        }
+
+        const revisionObject = revisions.value[index];
+        let source = revisionObject.source;
+
+        if (!source) {
+            source = (await fetchRevision(revisionObject.revision.toString())).source;
+        }
+
+        return source;
+    }
+
+    watch(revisionLeftIndex, async (newValue) => {
+        isLoadingRevisions.value = true;
+        try {
+            revisionLeftText.value = await loadRevisionContent(newValue);
+        } finally {
+            isLoadingRevisions.value = false;
+        }
+    });
+
+    watch(revisionRightIndex, async (newValue) => {
+        isLoadingRevisions.value = true;
+        try {
+            revisionRightText.value = await loadRevisionContent(newValue);
+        } finally {
+            isLoadingRevisions.value = false;
+        }
+    });
+
+    watch(() => route.query,
+          (newQuery, oldQuery) => {
+              if (newQuery.revisionLeft !== oldQuery.revisionLeft && newQuery.revisionLeft) {
+                  const newLeftIndex = revisionIndex(newQuery.revisionLeft.toString());
+                  if (newLeftIndex !== revisionLeftIndex.value) {
+                      revisionLeftIndex.value = newLeftIndex;
+                  }
+              }
+
+              if (newQuery.revisionRight !== oldQuery.revisionRight && newQuery.revisionRight) {
+                  const newRightIndex = revisionIndex(newQuery.revisionRight.toString());
+                  if (newRightIndex !== revisionRightIndex.value) {
+                      revisionRightIndex.value = newRightIndex;
+                  }
+              }
+          },
+          {deep: true}
+    )
+
+    load();
 </script>
 
 <style scoped lang="scss">
     .flow-revision {
         display: flex;
         flex-direction: column;
-        min-height: 100%;
+        height: 100%;
+        min-height: 100vh;
     }
 
     .ks-editor {
         flex: 1;
-        padding-bottom: var(--spacer);
+        padding-bottom: 1rem;
     }
 
     .revision-select {

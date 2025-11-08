@@ -4,6 +4,7 @@ import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
@@ -19,20 +20,20 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 @Plugin
-public class DynamicPropertyExampleTask extends Task implements RunnableTask<DynamicPropertyExampleTask.Output> {
+public class DynamicPropertyExampleTask extends Task implements RunnableTask<DynamicPropertyExampleTask.Output>, Data.From {
     @NotNull
-    private Property<Integer> number;
+    private Property<@Min(0) Integer> number;
 
     @NotNull
     private Property<String> string;
 
     @NotNull
     @Builder.Default
-    private Property<String> withDefault = Property.of("Default Value");
+    private Property<String> withDefault = Property.ofValue("Default Value");
 
     @NotNull
     @Builder.Default
-    private Property<Level> level = Property.of(Level.INFO);
+    private Property<Level> level = Property.ofValue(Level.INFO);
 
     @NotNull
     private Property<Duration> someDuration;
@@ -44,26 +45,27 @@ public class DynamicPropertyExampleTask extends Task implements RunnableTask<Dyn
     private Property<Map<String, String>> properties;
 
     @NotNull
-    private Data<Message> data;
+    private Object from;
 
 
     @Override
     public Output run(RunContext runContext) throws Exception {
         String value = String.format(
             "%s - %s - %s - %s",
-            runContext.render(string).as(String.class).orElseThrow(),
-            runContext.render(number).as(Integer.class).orElseThrow(),
-            runContext.render(withDefault).as(String.class).orElseThrow(),
-            runContext.render(someDuration).as(Duration.class).orElseThrow()
+            runContext.render(string).as(String.class).orElse(null),
+            runContext.render(number).as(Integer.class).orElse(null),
+            runContext.render(withDefault).as(String.class).orElse(null),
+            runContext.render(someDuration).as(Duration.class).orElse(null)
         );
 
-        Level level =runContext.render(this.level).as(Level.class).orElseThrow();
+        Level level = runContext.render(this.level).as(Level.class).orElse(null);
 
         List<String> list = runContext.render(items).asList(String.class);
 
         Map<String, String> map = runContext.render(properties).asMap(String.class, String.class);
 
-        List<Message> outputMessages = data.flux(runContext, Message.class, message -> Message.fromMap(message))
+        List<Message> outputMessages = Data.from(from)
+            .readAs(runContext, Message.class, message -> Message.fromMap(message))
             .collectList()
             .block();
 

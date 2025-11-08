@@ -2,16 +2,19 @@ package io.kestra.core.models.flows.input;
 
 import io.kestra.core.models.flows.Input;
 import io.kestra.core.models.flows.RenderableInput;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.validations.ManualConstraintViolation;
 import io.kestra.core.validations.Regex;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -25,6 +28,7 @@ public class SelectInput extends Input<String> implements RenderableInput {
     @Schema(
         title = "List of values."
     )
+    @Size(min = 2)
     List<@Regex String> values;
 
     @Schema(
@@ -38,6 +42,30 @@ public class SelectInput extends Input<String> implements RenderableInput {
     @NotNull
     @Builder.Default
     Boolean allowCustomValue = false;
+
+    @Schema(
+        title = "Indicates if the input should be rendered as a radio button group."
+    )
+    @NotNull
+    @Builder.Default
+    Boolean isRadio = false;
+
+    @Schema(
+        title = "Whether the first value of the select should be selected by default."
+    )
+    @NotNull
+    @Builder.Default
+    Boolean autoSelectFirst = false;
+
+    @Override
+    public Property<String> getDefaults() {
+        Property<String> baseDefaults = super.getDefaults();
+        if (baseDefaults == null && autoSelectFirst && !Optional.ofNullable(values).map(Collection::isEmpty).orElse(true)) {
+            return Property.ofValue(values.getFirst());
+        }
+
+        return baseDefaults;
+    }
 
     @Override
     public void validate(String input) throws ConstraintViolationException {
@@ -70,6 +98,8 @@ public class SelectInput extends Input<String> implements RenderableInput {
                 .description(getDescription())
                 .dependsOn(getDependsOn())
                 .displayName(getDisplayName())
+                .isRadio(getIsRadio())
+                .autoSelectFirst(getAutoSelectFirst())
                 .build();
         }
         return this;
@@ -78,7 +108,7 @@ public class SelectInput extends Input<String> implements RenderableInput {
     private List<String> renderExpressionValues(final Function<String, Object> renderer) {
         Object result;
         try {
-            result = renderer.apply(expression);
+            result = renderer.apply(expression.trim());
         } catch (Exception e) {
             throw ManualConstraintViolation.toConstraintViolationException(
                 "Cannot render 'expression'. Cause: " + e.getMessage(),

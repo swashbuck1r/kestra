@@ -1,43 +1,41 @@
 package io.kestra.core.tasks;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.kestra.core.junit.annotations.ExecuteFlow;
+import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.flows.State;
-import io.kestra.core.runners.AbstractMemoryRunnerTest;
 import org.junit.jupiter.api.Test;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.is;
+@KestraTest(startRunner = true)
+class FetchTest {
 
-public class FetchTest extends AbstractMemoryRunnerTest {
     @Test
-    void fetch() throws Exception {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "get-log");
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
-        assertThat(execution.getTaskRunList(), hasSize(4));
+    @ExecuteFlow("flows/valids/get-log.yaml")
+    void fetch(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(4);
         TaskRun fetch = execution.findTaskRunsByTaskId("get-log-task").getFirst();
-        assertThat(fetch.getOutputs().get("size"), is(3));
+        assertThat(fetch.getOutputs().get("size")).isEqualTo(3);
     }
 
     @Test
-    void fetchWithTaskId() throws Exception {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "get-log-taskid");
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
-        assertThat(execution.getTaskRunList(), hasSize(4));
+    @ExecuteFlow("flows/valids/get-log-taskid.yaml")
+    void fetchWithTaskId(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(4);
         TaskRun fetch = execution.findTaskRunsByTaskId("get-log-task").getFirst();
-        assertThat(fetch.getOutputs().get("size"), is(1));
+        assertThat(fetch.getOutputs().get("size")).isEqualTo(1);
     }
 
     @Test
-    void fetchWithExecutionId() throws Exception {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "get-log-executionid");
-
-        assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
-        assertThat(execution.getTaskRunList(), hasSize(4));
+    @ExecuteFlow("flows/valids/get-log-executionid.yaml")
+    void fetchWithExecutionId(Execution execution) {
+        assertThat(execution.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
+        assertThat(execution.getTaskRunList()).hasSize(4);
         TaskRun fetch = execution.findTaskRunsByTaskId("get-log-task").getFirst();
-        assertThat(fetch.getOutputs().get("size"), is(3));
+        assertThat(fetch.getOutputs().get("size")).isEqualTo(3);
     }
 }

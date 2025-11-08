@@ -4,8 +4,6 @@ import io.kestra.core.models.annotations.Plugin.Id;
 import jakarta.validation.constraints.NotNull;
 
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -19,7 +17,7 @@ public interface Plugin {
     /**
      * Gets the type of this plugin.
      *
-     * @return  the string type of the plugin.
+     * @return the string type of the plugin.
      */
     @NotNull
     default String getType() {
@@ -29,12 +27,12 @@ public interface Plugin {
     /**
      * Static helper method to get the aliases of a given plugin.
      *
-     * @param plugin    The plugin type.
-     * @return  {@code true} if the plugin is internal.
+     * @param plugin The plugin type.
+     * @return {@code true} if the plugin is internal.
      */
     static Set<String> getAliases(final Class<?> plugin) {
         io.kestra.core.models.annotations.Plugin annotation = plugin.getAnnotation(io.kestra.core.models.annotations.Plugin.class);
-       return Optional.ofNullable(annotation)
+        return Optional.ofNullable(annotation)
             .map(io.kestra.core.models.annotations.Plugin::aliases)
             .stream()
             .flatMap(Arrays::stream)
@@ -44,14 +42,40 @@ public interface Plugin {
     /**
      * Static helper method to check whether a given plugin is internal.
      *
-     * @param plugin    The plugin type.
-     * @return  {@code true} if the plugin is internal.
+     * @param plugin The plugin type.
+     * @return {@code true} if the plugin is internal.
      */
     static boolean isInternal(final Class<?> plugin) {
         Objects.requireNonNull(plugin, "Cannot check if a plugin is internal from null");
         io.kestra.core.models.annotations.Plugin annotation = plugin.getAnnotation(io.kestra.core.models.annotations.Plugin.class);
         return Optional.ofNullable(annotation)
             .map(io.kestra.core.models.annotations.Plugin::internal)
+            .orElse(false);
+    }
+
+    /**
+     * Static helper method to check whether a given plugin is deprecated.
+     *
+     * @param plugin The plugin type.
+     * @return {@code true} if the plugin is deprecated.
+     */
+    static boolean isDeprecated(final Class<?> plugin) {
+        Objects.requireNonNull(plugin, "Cannot check if a plugin is deprecated from null");
+        Deprecated annotation = plugin.getAnnotation(Deprecated.class);
+        return annotation != null;
+    }
+
+    /**
+     * Static helper method to check whether a given plugin has PRIMARY priority.
+     *
+     * @param plugin The plugin class.
+     * @return {@code true} if the plugin is annotated with {@link Plugin} and its priority is PRIMARY.
+     */
+    static boolean isPrimary(final Class<?> plugin) {
+        Objects.requireNonNull(plugin, "Cannot check priority on null class");
+        io.kestra.core.models.annotations.Plugin annotation = plugin.getAnnotation(io.kestra.core.models.annotations.Plugin.class);
+        return Optional.ofNullable(annotation)
+            .map(a -> a.priority() == io.kestra.core.models.annotations.Plugin.Priority.PRIMARY)
             .orElse(false);
     }
 

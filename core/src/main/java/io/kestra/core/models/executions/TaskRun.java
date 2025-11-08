@@ -1,11 +1,16 @@
 package io.kestra.core.models.executions;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.kestra.core.models.TenantInterface;
 import io.kestra.core.models.flows.State;
+import io.kestra.core.models.tasks.FlowableTask;
 import io.kestra.core.models.tasks.ResolvedTask;
+import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.tasks.retrys.AbstractRetry;
 import io.kestra.core.utils.IdUtils;
 import io.swagger.v3.oas.annotations.Hidden;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.*;
@@ -49,7 +54,10 @@ public class TaskRun implements TenantInterface {
     List<TaskRunAttempt> attempts;
 
     @With
-    Map<String, Object> outputs;
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    @Nullable
+    @Schema(implementation = Object.class)
+    Variables outputs;
 
     @NotNull
     State state;
@@ -59,6 +67,10 @@ public class TaskRun implements TenantInterface {
 
     @With
     Boolean dynamic;
+
+    // Set it to true to force execution even if the execution is killed
+    @With
+    Boolean forceExecution;
 
     @Deprecated
     public void setItems(String items) {
@@ -79,7 +91,8 @@ public class TaskRun implements TenantInterface {
             this.outputs,
             this.state.withState(state),
             this.iteration,
-            this.dynamic
+            this.dynamic,
+            this.forceExecution
         );
     }
 
@@ -97,7 +110,8 @@ public class TaskRun implements TenantInterface {
             this.outputs,
             newState,
             this.iteration,
-            this.dynamic
+            this.dynamic,
+            this.forceExecution
         );
     }
 
@@ -119,7 +133,8 @@ public class TaskRun implements TenantInterface {
             this.outputs,
             this.state.withState(State.Type.FAILED),
             this.iteration,
-            this.dynamic
+            this.dynamic,
+            this.forceExecution
         );
     }
 
@@ -150,6 +165,7 @@ public class TaskRun implements TenantInterface {
             .taskId(resolvedTask.getTask().getId())
             .parentTaskRunId(resolvedTask.getParentId())
             .value(resolvedTask.getValue())
+            .iteration(resolvedTask.getIteration())
             .state(new State())
             .build();
     }
@@ -181,17 +197,17 @@ public class TaskRun implements TenantInterface {
             taskRunBuilder.attempts = new ArrayList<>();
 
             taskRunBuilder.attempts.add(TaskRunAttempt.builder()
-                .state(new State(this.state, State.Type.KILLED))
+                .state(new State(this.state, State.Type.RESUBMITTED))
                 .build()
             );
         } else {
             ArrayList<TaskRunAttempt> taskRunAttempts = new ArrayList<>(taskRunBuilder.attempts);
             TaskRunAttempt lastAttempt = taskRunAttempts.get(taskRunBuilder.attempts.size() - 1);
             if (!lastAttempt.getState().isTerminated()) {
-                taskRunAttempts.set(taskRunBuilder.attempts.size() - 1, lastAttempt.withState(State.Type.KILLED));
+                taskRunAttempts.set(taskRunBuilder.attempts.size() - 1, lastAttempt.withState(State.Type.RESUBMITTED));
             } else {
                 taskRunAttempts.add(TaskRunAttempt.builder()
-                    .state(new State().withState(State.Type.KILLED))
+                    .state(new State().withState(State.Type.RESUBMITTED))
                     .build()
                 );
             }
@@ -205,7 +221,7 @@ public class TaskRun implements TenantInterface {
     public boolean isSame(TaskRun taskRun) {
         return this.getId().equals(taskRun.getId()) &&
             ((this.getValue() == null && taskRun.getValue() == null) || (this.getValue() != null && this.getValue().equals(taskRun.getValue()))) &&
-            ((this.getIteration() == null && taskRun.getIteration() == null) || (this.getIteration() != null && this.getIteration().equals(taskRun.getIteration()))) ;
+            ((this.getIteration() == null && taskRun.getIteration() == null) || (this.getIteration() != null && this.getIteration().equals(taskRun.getIteration())));
     }
 
     public String toString(boolean pretty) {
@@ -237,12 +253,12 @@ public class TaskRun implements TenantInterface {
      * This method is used when the retry is apply on a task
      * but the retry type is NEW_EXECUTION
      *
-     * @param retry Contains the retry configuration
+     * @param retry     Contains the retry configuration
      * @param execution Contains the attempt number and original creation date
      * @return The next retry date, null if maxAttempt || maxDuration is reached
      */
     public Instant nextRetryDate(AbstractRetry retry, Execution execution) {
-        if (retry.getMaxAttempt() != null && execution.getMetadata().getAttemptNumber() >= retry.getMaxAttempt()) {
+        if (retry.getMaxAttempts() != null && execution.getMetadata().getAttemptNumber() >= retry.getMaxAttempts()) {
 
             return null;
         }
@@ -258,11 +274,12 @@ public class TaskRun implements TenantInterface {
 
     /**
      * This method is used when the Retry definition comes from the flow
+     *
      * @param retry The retry configuration
      * @return The next retry date, null if maxAttempt || maxDuration is reached
      */
     public Instant nextRetryDate(AbstractRetry retry) {
-        if (this.attempts == null || this.attempts.isEmpty() || (retry.getMaxAttempt() != null && this.attemptNumber() >= retry.getMaxAttempt())) {
+        if (this.attempts == null || this.attempts.isEmpty() || (retry.getMaxAttempts() != null && this.attemptNumber() >= retry.getMaxAttempts())) {
 
             return null;
         }
@@ -284,7 +301,7 @@ public class TaskRun implements TenantInterface {
     }
 
     public TaskRun incrementIteration() {
-        int iteration = this.iteration == null ? 1 : this.iteration;
+        int iteration = this.iteration == null ? 0 : this.iteration;
         return this.toBuilder()
             .iteration(iteration + 1)
             .build();

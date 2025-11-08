@@ -1,10 +1,11 @@
 package io.kestra.core.server;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import io.kestra.core.utils.Enums;
 
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -71,17 +72,6 @@ public interface Service extends AutoCloseable {
     }
 
     /**
-     * Supported service types.
-     */
-    enum ServiceType {
-        EXECUTOR,
-        INDEXER,
-        SCHEDULER,
-        WEBSERVER,
-        WORKER,
-    }
-
-    /**
      * {@link ServiceState} are the possible states that a Kestra's Service can be in.
      * An instance must only be in one state at a time.
      * The expected state transition with the following defined states is:
@@ -118,25 +108,36 @@ public interface Service extends AutoCloseable {
      *                         |
      *                         v
      *                  +------+-------+
-     *                  | Empty (8)    |
+     *                  | Inactive (8) |
      *                  +------+-------+
      * </pre>
      */
     enum ServiceState {
-        CREATED(1, 2, 3),               // 0
-        RUNNING(2, 3, 4),               // 1
+        CREATED(1, 2, 3, 4, 9),         // 0
+        RUNNING(2, 3, 4, 9),            // 1
         ERROR(4),                       // 2
         DISCONNECTED(4, 7),             // 3
         TERMINATING(5, 6, 7),           // 4
         TERMINATED_GRACEFULLY(7),       // 5
         TERMINATED_FORCED(7),           // 6
         NOT_RUNNING(8),                 // 7
-        EMPTY();                                    // 8
+        INACTIVE(),                                   // 8 FINAL STATE
+        MAINTENANCE(1, 2, 3, 4);        // 9
 
         private final Set<Integer> validTransitions = new HashSet<>();
 
         ServiceState(final Integer... validTransitions) {
             this.validTransitions.addAll(Arrays.asList(validTransitions));
+        }
+        
+        @JsonCreator
+        public static ServiceState fromString(final String value) {
+            try {
+                // EMPTY state was renamed to INACTIVE in Kestra 1.0
+                return Enums.getForNameIgnoreCase(value, ServiceState.class, Map.of("EMPTY", INACTIVE));
+            } catch (IllegalArgumentException e) {
+                return INACTIVE;
+            }
         }
 
         public boolean isValidTransition(final ServiceState newState) {
@@ -156,11 +157,11 @@ public interface Service extends AutoCloseable {
             return equals(TERMINATED_GRACEFULLY)
                 || equals(TERMINATED_FORCED)
                 || equals(NOT_RUNNING)
-                || equals(EMPTY);
+                || equals(INACTIVE);
         }
 
         public static Set<ServiceState> allRunningStates() {
-            return Set.of(CREATED, RUNNING);
+            return Set.of(CREATED, RUNNING, MAINTENANCE);
         }
 
         public static Set<ServiceState> allNonRunningStates() {

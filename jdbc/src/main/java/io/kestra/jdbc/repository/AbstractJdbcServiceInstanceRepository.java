@@ -7,6 +7,7 @@ import io.kestra.core.server.ServiceInstance;
 import io.kestra.core.server.ServiceLivenessStore;
 import io.kestra.core.server.ServiceLivenessUpdater;
 import io.kestra.core.server.ServiceStateTransition;
+import io.kestra.core.server.ServiceType;
 import io.micronaut.data.model.Pageable;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -22,12 +23,14 @@ import org.jooq.TransactionalCallable;
 import org.jooq.TransactionalRunnable;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import static java.util.stream.Collectors.toCollection;
 import static org.jooq.impl.DSL.using;
 
 @Getter
@@ -99,7 +102,7 @@ public abstract class AbstractJdbcServiceInstanceRepository extends AbstractJdbc
      * {@inheritDoc}
      **/
     @Override
-    public List<ServiceInstance> findAllInstancesBetween(final Service.ServiceType type, final Instant from, final Instant to) {
+    public List<ServiceInstance> findAllInstancesBetween(final ServiceType type, final Instant from, final Instant to) {
         return jdbcRepository.getDslContextWrapper().transactionResult(configuration -> {
             SelectConditionStep<Record1<Object>> query = using(configuration)
                 .select(VALUE)
@@ -121,7 +124,7 @@ public abstract class AbstractJdbcServiceInstanceRepository extends AbstractJdbc
             .where(STATE.in(states.stream().map(Enum::name).toList()));
 
         return isForUpdate ?
-            this.jdbcRepository.fetch(query.forUpdate()) :
+            this.jdbcRepository.fetch(query.forUpdate().skipLocked()) :
             this.jdbcRepository.fetch(query);
     }
 
@@ -149,7 +152,7 @@ public abstract class AbstractJdbcServiceInstanceRepository extends AbstractJdbc
             .where(STATE.notIn(Service.ServiceState.CREATED.name(), Service.ServiceState.RUNNING.name()));
 
         return isForUpdate ?
-            this.jdbcRepository.fetch(query.forUpdate()) :
+            this.jdbcRepository.fetch(query.forUpdate().skipLocked()) :
             this.jdbcRepository.fetch(query);
     }
 
@@ -177,8 +180,18 @@ public abstract class AbstractJdbcServiceInstanceRepository extends AbstractJdbc
             .where(STATE.eq(Service.ServiceState.NOT_RUNNING.name()));
 
         return isForUpdate ?
-            this.jdbcRepository.fetch(query.forUpdate()) :
+            this.jdbcRepository.fetch(query.forUpdate().skipLocked()) :
             this.jdbcRepository.fetch(query);
+    }
+
+    @Override
+    public int purgeEmptyInstances(Instant until) {
+        return jdbcRepository.getDslContextWrapper().transactionResult(
+            configuration -> using(configuration).delete(table())
+                .where(STATE.in(Service.ServiceState.INACTIVE.name(), "EMPTY"))
+                .and(UPDATED_AT.lessOrEqual(until))
+                .execute()
+        );
     }
 
     public void transaction(final TransactionalRunnable runnable) {
@@ -241,14 +254,19 @@ public abstract class AbstractJdbcServiceInstanceRepository extends AbstractJdbc
     @Override
     public ArrayListTotal<ServiceInstance> find(final Pageable pageable,
                                                 final Set<Service.ServiceState> states,
-                                                final Set<Service.ServiceType> types) {
+                                                final Set<ServiceType> types) {
         return this.jdbcRepository
             .getDslContextWrapper()
             .transactionResult(configuration -> {
                 DSLContext context = using(configuration);
                 SelectConditionStep<Record1<Object>> select = context.select(VALUE).from(table()).where("1=1");
                 if (states != null && !states.isEmpty()) {
-                    select = select.and(STATE.in(states.stream().map(Enum::name).toList()));
+                    List<String> stateStrings = states.stream().map(Enum::name).collect(toCollection(ArrayList::new));
+                    // backward-compatibility: EMPTY was renamed to INACTIVE in Kestra 1.0
+                    if (stateStrings.contains(Service.ServiceState.INACTIVE.name())) {
+                        stateStrings.add("EMPTY");
+                    }
+                    select = select.and(STATE.in(stateStrings));
                 }
                 if (types != null && !types.isEmpty()) {
                     select = select.and(TYPE.in(types.stream().map(Enum::name).toList()));

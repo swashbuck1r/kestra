@@ -2,6 +2,7 @@ package io.kestra.core.runners.pebble;
 
 import io.kestra.core.runners.pebble.expression.NullCoalescingExpression;
 import io.kestra.core.runners.pebble.expression.UndefinedCoalescingExpression;
+import io.kestra.core.runners.pebble.expression.InExpression;
 import io.kestra.core.runners.pebble.filters.*;
 import io.kestra.core.runners.pebble.functions.*;
 import io.kestra.core.runners.pebble.tests.JsonTest;
@@ -48,8 +49,17 @@ public class Extension extends AbstractExtension {
     private FileSizeFunction fileSizeFunction;
 
     @Inject
+    private IsFileEmptyFunction isFileEmptyFunction;
+
+    @Inject
+    private FileExistsFunction fileExistsFunction;
+
+    @Inject
     @Nullable
     private ErrorLogsFunction errorLogsFunction;
+
+    @Inject
+    private HttpFunction httpFunction;
 
     @Override
     public List<TokenParser> getTokenParsers() {
@@ -67,6 +77,7 @@ public class Extension extends AbstractExtension {
 
         operators.add(new BinaryOperatorImpl("??", 120, NullCoalescingExpression::new, NORMAL, Associativity.LEFT));
         operators.add(new BinaryOperatorImpl("???", 120, UndefinedCoalescingExpression::new, NORMAL, Associativity.LEFT));
+        operators.add(new BinaryOperatorImpl("isIn", 120, InExpression::new, NORMAL, Associativity.LEFT));
 
         return operators;
     }
@@ -82,11 +93,13 @@ public class Extension extends AbstractExtension {
         filters.put("dateAdd", new DateAddFilter());
         filters.put("timestamp", new TimestampFilter());
         filters.put("timestampMicro", new TimestampMicroFilter());
+        filters.put("timestampMilli", new TimestampMilliFilter());
         filters.put("timestampNano", new TimestampNanoFilter());
         filters.put("jq", new JqFilter());
         filters.put("escapeChar", new EscapeCharFilter());
         filters.put("json", new JsonFilter());
         filters.put("toJson", new ToJsonFilter());
+        filters.put("distinct", new DistinctFilter());
         filters.put("keys", new KeysFilter());
         filters.put("number", new NumberFilter());
         filters.put("urldecode", new UrlDecoderFilter());
@@ -106,6 +119,7 @@ public class Extension extends AbstractExtension {
         filters.put("sha1", new Sha1Filter());
         filters.put("sha512", new Sha512Filter());
         filters.put("md5", new Md5Filter());
+        filters.put("string", new StringFilter());
         return filters;
     }
 
@@ -127,25 +141,36 @@ public class Extension extends AbstractExtension {
         functions.put("json", new JsonFunction());
         functions.put("fromJson", new FromJsonFunction());
         functions.put("currentEachOutput", new CurrentEachOutputFunction());
-        functions.put("secret", secretFunction);
+        functions.put(SecretFunction.NAME, secretFunction);
         functions.put("kv", kvFunction);
         functions.put("read", readFileFunction);
         functions.put("fileURI", fileURIFunction);
-        if (this.renderFunction != null) {
-            functions.put("render", renderFunction);
+        if (renderFunction != null) {
+            functions.put(renderFunction.functionName(), renderFunction);
         }
-        if (this.renderOnceFunction != null) {
-            functions.put("renderOnce", renderOnceFunction);
+        if (renderOnceFunction != null) {
+            functions.put(renderOnceFunction.functionName(), renderOnceFunction);
         }
         functions.put("encrypt", new EncryptFunction());
         functions.put("decrypt", new DecryptFunction());
         functions.put("yaml", new YamlFunction());
-        functions.put("printContext", new PrintContextFunction());
+        functions.put("printContext", new FetchContextFunction());
+        functions.put("fetchContext", new FetchContextFunction());
+        functions.put("uuid", new UUIDFunction());
+        functions.put("id", new IDFunction());
+        functions.put("ksuid", new KSUIDFunction());
         functions.put("fromIon", new FromIonFunction());
         functions.put("fileSize", fileSizeFunction);
         if (this.errorLogsFunction != null) {
             functions.put("errorLogs", errorLogsFunction);
         }
+        functions.put("randomInt", new RandomIntFunction());
+        functions.put("randomPort", new RandomPortFunction());
+        functions.put("fileExists", fileExistsFunction);
+        functions.put("isFileEmpty", isFileEmptyFunction);
+        functions.put("nanoId", new NanoIDFunction());
+        functions.put("tasksWithState", new TasksWithStateFunction());
+        functions.put(HttpFunction.NAME, httpFunction);
         return functions;
     }
 

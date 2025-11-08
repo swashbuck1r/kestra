@@ -1,5 +1,6 @@
 package io.kestra.plugin.core.namespace;
 
+import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.storages.Namespace;
@@ -16,9 +17,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.notNullValue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @KestraTest
 public class DownloadFilesTest {
@@ -35,7 +34,7 @@ public class DownloadFilesTest {
             .id(DownloadFiles.class.getSimpleName())
             .type(DownloadFiles.class.getName())
             .files(List.of("**test1.txt"))
-            .namespace("{{ inputs.namespace }}")
+            .namespace(Property.ofExpression("{{ inputs.namespace }}"))
             .build();
 
         final RunContext runContext = TestsUtils.mockRunContext(this.runContextFactory, downloadFiles, Map.of("namespace", namespaceId));
@@ -46,8 +45,8 @@ public class DownloadFilesTest {
 
         DownloadFiles.Output output = downloadFiles.run(runContext);
 
-        assertThat(output.getFiles().size(), is(1));
-        assertThat(output.getFiles().get("/a/b/test1.txt"), notNullValue());
+        assertThat(output.getFiles().size()).isEqualTo(1);
+        assertThat(output.getFiles().get("/a/b/test1.txt")).isNotNull();
 
     }
 }

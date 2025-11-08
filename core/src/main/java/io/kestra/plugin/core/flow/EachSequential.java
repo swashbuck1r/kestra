@@ -16,6 +16,7 @@ import io.kestra.core.models.tasks.VoidOutput;
 import io.kestra.core.runners.FlowableUtils;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.utils.GraphUtils;
+import io.kestra.core.utils.ListUtils;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -33,7 +34,7 @@ import java.util.Optional;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "For each value in the list, execute one or more tasks sequentially.",
+    title = "For each value in the list, execute one or more tasks sequentially (Deprecated).",
     description = "This task is deprecated, please use the `io.kestra.plugin.core.flow.ForEach` task instead.\n\n" +
         "The list of `tasks` will be executed for each item sequentially. " +
         "The value must be a valid JSON string representing an array, e.g. a list of strings `[\"value1\", \"value2\"]` or a list of dictionaries `[{\"key\": \"value1\"}, {\"key\": \"value2\"}]`. \n\n" +
@@ -97,8 +98,8 @@ public class EachSequential extends Sequential implements FlowableTask<VoidOutpu
     @NotNull
     @PluginProperty(dynamic = true)
     @Schema(
-        title = "The list of values for this task.",
-        description = "The value car be passed as a string, a list of strings, or a list of objects.",
+        title = "The list of values for this task",
+        description = "The value can be passed as a string, a list of strings, or a list of objects.",
         oneOf = {String.class, Object[].class}
     )
     private Object value;
@@ -111,6 +112,7 @@ public class EachSequential extends Sequential implements FlowableTask<VoidOutpu
             subGraph,
             this.getTasks(),
             this.errors,
+            this._finally,
             taskRun,
             execution
         );
@@ -125,8 +127,9 @@ public class EachSequential extends Sequential implements FlowableTask<VoidOutpu
 
     @Override
     public Optional<State.Type> resolveState(RunContext runContext, Execution execution, TaskRun parentTaskRun) throws IllegalVariableEvaluationException {
-        List<ResolvedTask> childTasks = this.childTasks(runContext, parentTaskRun);
-
+        List<ResolvedTask> childTasks = ListUtils.emptyOnNull(this.childTasks(runContext, parentTaskRun)).stream()
+            .filter(resolvedTask -> !resolvedTask.getTask().getDisabled())
+            .toList();
         if (childTasks.isEmpty()) {
             return Optional.of(State.Type.SUCCESS);
         }
@@ -135,6 +138,7 @@ public class EachSequential extends Sequential implements FlowableTask<VoidOutpu
             execution,
             childTasks,
             FlowableUtils.resolveTasks(this.getErrors(), parentTaskRun),
+            FlowableUtils.resolveTasks(this.getFinally(), parentTaskRun),
             parentTaskRun,
             runContext,
             this.isAllowFailure(),
@@ -148,6 +152,7 @@ public class EachSequential extends Sequential implements FlowableTask<VoidOutpu
             execution,
             FlowableUtils.resolveEachTasks(runContext, parentTaskRun, this.getTasks(), this.value),
             FlowableUtils.resolveTasks(this.errors, parentTaskRun),
+            FlowableUtils.resolveTasks(this._finally, parentTaskRun),
             parentTaskRun
         );
     }

@@ -1,5 +1,5 @@
 <template>
-    <el-row class="my-5">
+    <el-row class="my-5 settings-wrapper">
         <el-col
             :xs="layout(24, 0)"
             :sm="layout(20, 2)"
@@ -13,7 +13,7 @@
 </template>
 
 <script setup lang="ts">
-    const layout = (span, offset) => {
+    const layout = (span: number, offset: number) => {
         return {span, offset};
     };
 </script>

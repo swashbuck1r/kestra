@@ -1,14 +1,34 @@
 <template>
-    <TopNavBar :title="routeInfo.title">
-        <template #additional-right v-if="canCreate">
+    <TopNavBar
+        :title="routeInfo.title"
+        :breadcrumb="[{label: t('dashboards.labels.singular'), link: undefined}]"
+        :description="props.dashboard?.description"
+    >
+        <template v-if="isAllowed" #additional-right>
             <ul>
-                <li>
+                <li
+                    v-if="ALLOWED_CREATION_ROUTES.includes(String(route.name))"
+                >
+                    <Dashboards
+                        @dashboard="(value: any) => props.load?.(value)"
+                        class="me-1"
+                    />
+                </li>
+                <li
+                    v-if="props.dashboard?.id && props.dashboard?.id !== 'default'"
+                >
                     <router-link
-                        :to="{name: 'flows/create'}"
-                        data-test-id="dashboard-create-button"
+                        :to="{name: 'dashboards/update', params: {id: props.dashboard?.id}}"
                     >
+                        <el-button :icon="Pencil">
+                            {{ t("dashboards.edition.label") }}
+                        </el-button>
+                    </router-link>
+                </li>
+                <li>
+                    <router-link :to="{name: 'flows/create'}">
                         <el-button :icon="Plus" type="primary">
-                            {{ $t("create_flow") }}
+                            {{ t("create_flow") }}
                         </el-button>
                     </router-link>
                 </li>
@@ -17,26 +37,36 @@
     </TopNavBar>
 </template>
 
-<script setup>
+<script setup lang="ts">
     import {computed} from "vue";
-
-    import {useStore} from "vuex";
+    import {useRoute} from "vue-router";
     import {useI18n} from "vue-i18n";
+    import {useAuthStore} from "override/stores/auth";
+    
+    const {t} = useI18n();
+    const route = useRoute();
+    const authStore = useAuthStore();
+
+    import TopNavBar from "../../layout/TopNavBar.vue";
+    import Dashboards from "./selector/Selector.vue";
+
+    import Pencil from "vue-material-design-icons/Pencil.vue";
+    import Plus from "vue-material-design-icons/Plus.vue";
 
     import permission from "../../../models/permission";
     import action from "../../../models/action";
+    import {ALLOWED_CREATION_ROUTES} from "../composables/useDashboards";
 
-    import TopNavBar from "../../layout/TopNavBar.vue";
+    const props = defineProps({
+        dashboard: {type: Object, default: undefined},
+        load: {type: Function, default: undefined},
+    });
 
-    import Plus from "vue-material-design-icons/Plus.vue";
+    const user = computed(() => authStore.user);
+    const isAllowed = computed(() => user.value.isAllowedGlobal(permission.FLOW, action.CREATE));
 
-    const store = useStore();
-    const {t} = useI18n({useScope: "global"});
+    const routeInfo = computed(() => ({title: props.dashboard?.title ?? t("overview")}));
 
-    const user = computed(() => store.state.auth.user);
-    const canCreate = computed(() =>
-        user.value.isAllowedGlobal(permission.FLOW, action.CREATE),
-    );
-
-    const routeInfo = computed(() => ({title: t("homeDashboard.title")}));
+    import useRouteContext from "../../../composables/useRouteContext";
+    useRouteContext(routeInfo);
 </script>

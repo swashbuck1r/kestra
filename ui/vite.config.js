@@ -1,28 +1,52 @@
 import path from "path";
 import {defineConfig} from "vite";
 import vue from "@vitejs/plugin-vue";
-import {visualizer} from "rollup-plugin-visualizer";
-import eslintPlugin from "vite-plugin-eslint";
-import * as sass from "sass"
 
-import {filename} from "./plugins/filename"
 import {commit} from "./plugins/commit"
+import {codecovVitePlugin} from "@codecov/vite-plugin";
 
 export default defineConfig({
     base: "",
     build: {
         outDir: "../webserver/src/main/resources/ui",
+        rollupOptions: {
+            output: {
+                advancedChunks: {
+                    groups: [
+                        {
+                            test: /src\/components\/dashboard/i,
+                            name: "dashboard",
+                        },
+                        {
+                            test: /src\/components\/flows/i,
+                            name: "flows",
+                        },
+                        {
+                            test: /(shiki\/langs)|(src\/utils\/markdownDeps)/,
+                            name: "markdownDeps",
+                        },
+                    ],
+                }
+            }
+        }
+    },
+    server: {
+        proxy: {
+            "^/api": {
+                target: "http://localhost:8080",
+                ws: true,
+                changeOrigin: true
+            }
+        }
     },
     resolve: {
         alias: {
             "override": path.resolve(__dirname, "src/override/"),
-            // allow to render at runtime
-            vue: "vue/dist/vue.esm-bundler.js",
-
             "#imports": path.resolve(__dirname, "node_modules/@kestra-io/ui-libs/stub-mdc-imports.js"),
+            "#build/mdc-image-component.mjs": path.resolve(__dirname, "node_modules/@kestra-io/ui-libs/stub-mdc-imports.js"),
             "#mdc-imports": path.resolve(__dirname, "node_modules/@kestra-io/ui-libs/stub-mdc-imports.js"),
             "#mdc-configs": path.resolve(__dirname, "node_modules/@kestra-io/ui-libs/stub-mdc-imports.js"),
-            "shiki": path.resolve(__dirname, "node_modules/shiki/dist"),
+            "@storybook/addon-actions": "storybook/actions",
         },
     },
     plugins: [
@@ -35,23 +59,36 @@ export default defineConfig({
                 }
             }
         }),
-        visualizer(),
-        eslintPlugin({failOnWarning: true, failOnError: true}),
-        filename(),
-        commit()
+        commit(),
+        codecovVitePlugin({
+            enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
+            bundleName: "ui",
+            uploadToken: process.env.CODECOV_TOKEN,
+            telemetry: false
+        }),
     ],
     assetsInclude: ["**/*.md"],
     css: {
         devSourcemap: true,
         preprocessorOptions: {
             scss: {
-                logger: sass.Logger.silent
+                silenceDeprecations: ["color-functions", "global-builtin", "import"]
             },
         }
     },
     optimizeDeps: {
         include: [
-            "lodash"
+            "lodash",
+            // the 3 dependencies below are used by ui-libs
+            // optimizing them allows storybook to run properly
+            // without allowing interop in typescript
+            "dayjs",
+            "debug",
+            "@braintree/sanitize-url",
+            "monaco-yaml/yaml.worker",
+            "vue-axios",
+            "lodash-es",
+            "nprogress"
         ],
         exclude: [
             "* > @kestra-io/ui-libs"

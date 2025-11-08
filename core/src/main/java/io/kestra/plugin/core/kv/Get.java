@@ -1,16 +1,20 @@
 package io.kestra.plugin.core.kv;
 
+import io.kestra.core.exceptions.ResourceExpiredException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.DefaultRunContext;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.services.FlowService;
+import io.kestra.core.services.KVStoreService;
 import io.kestra.core.storages.kv.KVValue;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
+import java.io.IOException;
+import java.util.Objects;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -25,12 +29,12 @@ import java.util.Optional;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Gets value linked to a key."
+    title = "Retrieve a value of a KV pair by a key."
 )
 @Plugin(
     examples = {
         @Example(
-            title = "Get value for `my_variable` key in `dev` namespace and fail if it's not present.",
+            title = "Get value for `my_variable` key in `dev` namespace and fail if it's not present. Note that you can accomplish the same using the `kv()` Pebble function, e.g. `{{kv('my_variable')}}`.",
             full = true,
             code = """
                 id: kv_store_get
@@ -40,7 +44,7 @@ import java.util.Optional;
                   - id: kv_get
                     type: io.kestra.plugin.core.kv.Get
                     key: my_variable
-                    namespace: dev # the current namespace of the flow will be used by default
+                    namespace: company # the current namespace is used by default
                     errorOnMissing: true
                 """
         )
@@ -49,53 +53,70 @@ import java.util.Optional;
 public class Get extends Task implements RunnableTask<Get.Output> {
     @NotNull
     @Schema(
-        title = "The key for which to get the value."
+        title = "The key for which to get the value"
     )
-    @PluginProperty(dynamic = true)
-    private String key;
+    private Property<String> key;
 
     @NotNull
     @Schema(
-        title = "The namespace on which to get the value."
+        title = "The namespace from which to retrieve the KV pair"
     )
-    @PluginProperty(dynamic = true)
     @Builder.Default
-    private String namespace = "{{ flow.namespace }}";
+    private Property<String> namespace = Property.ofExpression("{{ flow.namespace }}");
 
     @NotNull
     @Schema(
-        title = "Whether to fail if there is no value for the given key."
+        title = "Flag specifying whether to fail if there is no value for the given key"
     )
-    @PluginProperty
     @Builder.Default
-    private boolean errorOnMissing = false;
+    private Property<Boolean> errorOnMissing = Property.ofValue(false);
 
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String renderedNamespace = runContext.render(this.namespace);
+        String renderedNamespace = runContext.render(this.namespace).as(String.class).orElse(null);
+        String flowNamespace = runContext.flowInfo().namespace();
+        String renderedKey = runContext.render(this.key).as(String.class).orElse(null);
 
-        FlowService flowService = ((DefaultRunContext) runContext).getApplicationContext().getBean(FlowService.class);
-        flowService.checkAllowedNamespace(runContext.flowInfo().tenantId(), renderedNamespace, runContext.flowInfo().tenantId(), runContext.flowInfo().namespace());
+        Optional<KVValue> value;
+        if (Objects.equals(renderedNamespace, flowNamespace)) {
+            value = getValueWithInheritance(runContext, flowNamespace, renderedKey);
+        } else {
+            FlowService flowService = ((DefaultRunContext) runContext).getApplicationContext().getBean(FlowService.class);
+            flowService.checkAllowedNamespace(runContext.flowInfo().tenantId(), renderedNamespace, runContext.flowInfo().tenantId(), runContext.flowInfo().namespace());
+            value = runContext.namespaceKv(renderedNamespace).getValue(renderedKey);
+        }
 
-        String renderedKey = runContext.render(this.key);
-
-        Optional<KVValue> maybeValue = runContext.namespaceKv(renderedNamespace).getValue(renderedKey);
-        if (this.errorOnMissing && maybeValue.isEmpty()) {
+        if (Boolean.TRUE.equals(runContext.render(this.errorOnMissing).as(Boolean.class).orElseThrow()) && value.isEmpty()) {
             throw new NoSuchElementException("No value found for key '" + renderedKey + "' in namespace '" + renderedNamespace + "' and `errorOnMissing` is set to true");
         }
 
         return Output.builder()
-            .value(maybeValue.map(KVValue::value).orElse(null))
+            .value(value.map(KVValue::value).orElse(null))
             .build();
+    }
+
+    private Optional<KVValue> getValueWithInheritance(RunContext runContext, String flowNamespace, String renderedKey)
+            throws IOException, ResourceExpiredException {
+        Optional<KVValue> value = Optional.empty();
+        KVStoreService kvStoreService = ((DefaultRunContext) runContext).getApplicationContext().getBean(KVStoreService.class);
+        String inheritedNamespace = flowNamespace;
+        while (value.isEmpty()) {
+            value = kvStoreService.get(runContext.flowInfo().tenantId(), inheritedNamespace, flowNamespace).getValue(renderedKey);
+            if (!inheritedNamespace.contains(".")){
+                return value;
+            }
+            inheritedNamespace = inheritedNamespace.substring(0, inheritedNamespace.lastIndexOf('.'));
+        }
+        return value;
     }
 
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "Value retrieve for the key.",
-            description = "This can be of any type and will keep the same as when it was set."
+            title = "Value retrieved for the key",
+            description = "This can be of any type and will stay the same as when it was set."
         )
         private final Object value;
     }

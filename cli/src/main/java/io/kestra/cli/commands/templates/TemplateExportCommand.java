@@ -2,8 +2,8 @@ package io.kestra.cli.commands.templates;
 
 import io.kestra.cli.AbstractApiCommand;
 import io.kestra.cli.AbstractValidateCommand;
+import io.kestra.cli.services.TenantIdSelectorService;
 import io.kestra.core.models.templates.TemplateEnabled;
-import io.micronaut.context.ApplicationContext;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.MediaType;
@@ -19,7 +19,7 @@ import java.nio.file.Path;
 
 @CommandLine.Command(
     name = "export",
-    description = "export templates to a zip file",
+    description = "Export templates to a ZIP file",
     mixinStandardHelpOptions = true
 )
 @Slf4j
@@ -27,14 +27,13 @@ import java.nio.file.Path;
 public class TemplateExportCommand extends AbstractApiCommand {
     private static final String DEFAULT_FILE_NAME = "templates.zip";
 
-    // @FIXME: Keep it for bug in micronaut that need to have inject on top level command to inject on abstract classe
     @Inject
-    private ApplicationContext applicationContext;
+    private TenantIdSelectorService tenantService;
 
-    @CommandLine.Option(names = {"--namespace"}, description = "the namespace of templates to export")
+    @CommandLine.Option(names = {"--namespace"}, description = "The namespace of templates to export")
     public String namespace;
 
-    @CommandLine.Parameters(index = "0", description = "the directory to export the file to")
+    @CommandLine.Parameters(index = "0", description = "The directory to export the file to")
     public Path directory;
 
     @Override
@@ -43,7 +42,7 @@ public class TemplateExportCommand extends AbstractApiCommand {
 
         try(DefaultHttpClient client = client()) {
             MutableHttpRequest<Object> request = HttpRequest
-                .GET(apiUri("/templates/export/by-query") + (namespace != null ? "?namespace=" + namespace : ""))
+                .GET(apiUri("/templates/export/by-query", tenantService.getTenantId(tenantId)) + (namespace != null ? "?namespace=" + namespace : ""))
                 .accept(MediaType.APPLICATION_OCTET_STREAM);
 
             HttpResponse<byte[]> response = client.toBlocking().exchange(this.requestOptions(request), byte[].class);

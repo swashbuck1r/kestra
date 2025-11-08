@@ -2,12 +2,14 @@ package io.kestra.cli.commands.namespaces.files;
 
 import io.kestra.cli.AbstractApiCommand;
 import io.kestra.cli.AbstractValidateCommand;
+import io.kestra.cli.services.TenantIdSelectorService;
 import io.kestra.core.utils.KestraIgnore;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.MediaType;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import io.micronaut.http.client.multipart.MultipartBody;
 import io.micronaut.http.client.netty.DefaultHttpClient;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import picocli.CommandLine;
 
@@ -17,22 +19,25 @@ import java.util.List;
 
 @CommandLine.Command(
     name = "update",
-    description = "update namespace files",
+    description = "Update namespace files",
     mixinStandardHelpOptions = true
 )
 @Slf4j
 public class NamespaceFilesUpdateCommand extends AbstractApiCommand {
-    @CommandLine.Parameters(index = "0", description = "the namespace to update")
+    @CommandLine.Parameters(index = "0", description = "The namespace to update")
     public String namespace;
 
-    @CommandLine.Parameters(index = "1", description = "the local directory containing files for current namespace")
+    @CommandLine.Parameters(index = "1", description = "The local directory containing files for current namespace")
     public Path from;
 
-    @CommandLine.Parameters(index = "2", description = "the remote namespace path to upload files to", defaultValue = "/")
+    @CommandLine.Parameters(index = "2", description = "The remote namespace path to upload files to", defaultValue = "/")
     public String to;
 
-    @CommandLine.Option(names = {"--delete"}, negatable = true, description = "if missing should be deleted")
+    @CommandLine.Option(names = {"--delete"}, negatable = true, description = "Whether missing should be deleted")
     public boolean delete = false;
+
+    @Inject
+    private TenantIdSelectorService tenantService;
 
     private static final String KESTRA_IGNORE_FILE = ".kestraignore";
 
@@ -44,7 +49,7 @@ public class NamespaceFilesUpdateCommand extends AbstractApiCommand {
 
         try (var files = Files.walk(from); DefaultHttpClient client = client()) {
             if (delete) {
-                client.toBlocking().exchange(this.requestOptions(HttpRequest.DELETE(apiUri("/namespaces/") + namespace + "/files?path=" + to, null)));
+                client.toBlocking().exchange(this.requestOptions(HttpRequest.DELETE(apiUri("/namespaces/", tenantService.getTenantIdAndAllowEETenants(tenantId)) + namespace + "/files?path=" + to, null)));
             }
 
             KestraIgnore kestraIgnore = new KestraIgnore(from);
@@ -62,7 +67,7 @@ public class NamespaceFilesUpdateCommand extends AbstractApiCommand {
                 client.toBlocking().exchange(
                     this.requestOptions(
                         HttpRequest.POST(
-                            apiUri("/namespaces/") + namespace + "/files?path=" + destination,
+                            apiUri("/namespaces/", tenantService.getTenantIdAndAllowEETenants(tenantId)) + namespace + "/files?path=" + destination,
                             body
                         ).contentType(MediaType.MULTIPART_FORM_DATA)
                     )

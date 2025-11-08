@@ -2,6 +2,7 @@ package io.kestra.plugin.core.output;
 
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
@@ -51,22 +52,25 @@ tasks:
     message: |
       Got the following outputs from the previous task:
       {{ outputs.output_values.values.taskrun_data }}
-      {{ outputs.output_values.values.execution_data }}"""
+      {{ outputs.output_values.values.execution_data }}
+      {{ outputs.output_values.values.number_value }}
+      {{ outputs.output_values.values.array_value[1] }}
+      {{ outputs.output_values.values.nested_object.key2 }}"""
         )
     }
 )
 public class OutputValues extends Task implements RunnableTask<OutputValues.Output> {
     @Schema(
-        title = "The templated strings to render.",
+        title = "The templated strings to render",
         description = "These values can be strings, numbers, arrays, or objects. Templated strings (enclosed in {{ }}) will be rendered using the current context."
     )
-    private HashMap<String, Object> values;
+    private Property<Map<String, Object>> values;
 
 
     @Override
     public OutputValues.Output run(RunContext runContext) throws Exception {
-        return OutputValues.Output.builder()
-            .values(runContext.render(values))
+        return Output.builder()
+            .values(runContext.render(values).asMap(String.class, Object.class))
             .build();
     }
 
@@ -74,7 +78,7 @@ public class OutputValues extends Task implements RunnableTask<OutputValues.Outp
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The generated values."
+            title = "The generated values"
         )
         private Map<String, Object> values;
     }

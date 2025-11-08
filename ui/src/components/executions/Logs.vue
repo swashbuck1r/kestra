@@ -1,19 +1,26 @@
 <template>
     <div data-component="FILENAME_PLACEHOLDER">
-        <KestraFilter
-            prefix="execution_logs"
-            :include="['level']"
+        <KSFilter
+            :configuration="logExecutionsFilter"
+            :tableOptions="{
+                chart: {shown: false},
+                columns: {shown: false}, 
+                refresh: {shown: true, callback: loadLogs}
+            }"
+            @search="filter = $event"
+            @filter="onFilterChange"
         />
-        <collapse>
+        <Collapse>
             <el-form-item v-for="logLevel in currentLevelOrLower" :key="logLevel">
-                <log-level-navigator
+                <LogLevelNavigator
                     v-if="countByLogLevel[logLevel] > 0"
-                    :cursor-idx="cursorLogLevel === logLevel ? cursorIdxForLevel : undefined"
+                    :cursorIdx="cursorLogLevel === logLevel ? cursorIdxForLevel : undefined"
                     :level="logLevel"
-                    :total-count="countByLogLevel[logLevel]"
+                    :totalCount="countByLogLevel[logLevel]"
                     @previous="previousLogForLevel(logLevel)"
                     @next="nextLogForLevel(logLevel)"
                     @close="logCursor = undefined"
+                    class="w-100"
                 />
             </el-form-item>
             <el-form-item>
@@ -31,40 +38,53 @@
                 </el-tooltip>
             </el-form-item>
             <el-form-item>
-                <el-button-group class="min-w-auto">
-                    <restart :execution="execution" class="ms-0" @follow="forwardEvent('follow', $event)" />
+                <el-button-group class="ks-b-group">
+                    <Restart v-if="executionsStore.execution" :execution="executionsStore.execution" class="ms-0" @follow="forwardEvent('follow', $event)" />
                     <el-button @click="downloadContent()">
-                        <kicon :tooltip="$t('download logs')">
-                            <download />
-                        </kicon>
+                        <Kicon :tooltip="$t('download logs')">
+                            <Download />
+                        </Kicon>
+                    </el-button>
+                    <el-button @click="copyAllLogs()">
+                        <Kicon :tooltip="$t('copy logs')">
+                            <ContentCopy />
+                        </Kicon>
                     </el-button>
                 </el-button-group>
             </el-form-item>
-        </collapse>
+            <el-form-item>
+                <el-button-group class="ks-b-group">
+                    <el-button @click="loadLogs()">
+                        <Kicon :tooltip="$t('refresh')">
+                            <Refresh />
+                        </Kicon>
+                    </el-button>
+                </el-button-group>
+            </el-form-item>
+        </Collapse>
 
-        <task-run-details
+        <TaskRunDetails
             v-if="!raw_view"
             ref="logs"
             :level="level"
-            :exclude-metas="['namespace', 'flowId', 'taskId', 'executionId']"
+            :excludeMetas="['namespace', 'flowId', 'taskId', 'executionId']"
             :filter="filter"
-            :level-to-highlight="cursorLogLevel"
+            :levelToHighlight="cursorLogLevel"
             @log-cursor="logCursor = $event"
-            :log-cursor="logCursor"
+            :logCursor="logCursor"
             @follow="forwardEvent('follow', $event)"
             @opened-taskruns-count="openedTaskrunsCount = $event"
             @log-indices-by-level="Object.entries($event).forEach(([levelName, indices]) => logIndicesByLevel[levelName] = indices)"
-            :target-execution="execution"
-            :target-flow="flow"
-            :show-progress-bar="false"
+            :targetFlow="executionsStore.flow"
+            :showProgressBar="false"
         />
         <el-card v-else class="attempt-wrapper">
             <DynamicScroller
                 ref="logScroller"
                 :items="temporalLogs"
-                :min-item-size="50"
-                key-field="index"
-                class="log-lines"
+                :minItemSize="50"
+                keyField="index"
+                class="log-lines temporal"
                 :buffer="200"
                 :prerender="20"
             >
@@ -72,18 +92,18 @@
                     <DynamicScrollerItem
                         :item="item"
                         :active="active"
-                        :size-dependencies="[item.message]"
+                        :sizeDependencies="[item.message]"
                         :data-index="item.index"
                     >
-                        <log-line
+                        <LogLine
                             @click="logCursor = item.index.toString()"
                             class="line"
                             :class="{['log-bg-' + cursorLogLevel?.toLowerCase()]: cursorLogLevel === item.level, 'opacity-40': cursorLogLevel && cursorLogLevel !== item.level}"
                             :cursor="item.index.toString() === logCursor"
+                            :excludeMetas="['namespace', 'flowId', 'executionId']"
                             :level="level"
                             :filter="filter"
                             :log="item"
-                            title
                         />
                     </DynamicScrollerItem>
                 </template>
@@ -92,21 +112,29 @@
     </div>
 </template>
 
+<script setup>
+    import {useLogExecutionsFilter} from "../filter/configurations";
+    
+    const logExecutionsFilter = useLogExecutionsFilter();
+</script>
 <script>
     import TaskRunDetails from "../logs/TaskRunDetails.vue";
-    import {mapState} from "vuex";
     import Download from "vue-material-design-icons/Download.vue";
+    import ContentCopy from "vue-material-design-icons/ContentCopy.vue";
     import Kicon from "../Kicon.vue";
     import LogLevelNavigator from "../logs/LogLevelNavigator.vue";
     import {DynamicScroller, DynamicScrollerItem} from "vue-virtual-scroller";
     import "vue-virtual-scroller/dist/vue-virtual-scroller.css"
     import Collapse from "../layout/Collapse.vue";
-    import State from "../../utils/state";
+    import {State, Utils as LibUtils} from "@kestra-io/ui-libs"
     import Utils from "../../utils/utils";
     import LogLine from "../logs/LogLine.vue";
     import Restart from "./Restart.vue";
-    import LogUtils from "../../utils/logs";
-    import KestraFilter from "../filter/KestraFilter.vue"
+    import * as LogUtils from "../../utils/logs";
+    import Refresh from "vue-material-design-icons/Refresh.vue";
+    import {mapStores} from "pinia";
+    import {useExecutionsStore} from "../../stores/executions";
+    import KSFilter from "../filter/components/KSFilter.vue";
 
     export default {
         components: {
@@ -115,11 +143,13 @@
             LogLevelNavigator,
             Kicon,
             Download,
+            ContentCopy,
             Collapse,
             Restart,
             DynamicScroller,
             DynamicScrollerItem,
-            KestraFilter
+            Refresh,
+            KSFilter
         },
         data() {
             return {
@@ -140,10 +170,7 @@
             level: {
                 handler() {
                     if (this.raw_view) {
-                        this.$store.dispatch("execution/loadLogs", {
-                            executionId: this.execution.id,
-                            minLevel: this.level
-                        })
+                        this.loadLogs();
                     }
                 }
             },
@@ -158,11 +185,11 @@
                 return State
             },
             temporalLogs() {
-                if (!this.logs?.length) {
+                if (!this.executionsStore.logs?.length) {
                     return [];
                 }
 
-                const filtered = this.logs.filter(log => {
+                const filtered = this.executionsStore.logs.filter(log => {
                     if (!this.filter) return true;
                     return log.message?.toLowerCase().includes(this.filter.toLowerCase());
                 });
@@ -172,9 +199,12 @@
                     index
                 }));
             },
-            ...mapState("execution", ["execution", "logs", "flow"]),
+            ...mapStores(useExecutionsStore),
+            executionId() {
+                return this.executionsStore.execution.id;
+            },
             downloadName() {
-                return `kestra-execution-${this.$moment().format("YYYYMMDDHHmmss")}-${this.execution.id}.log`
+                return `kestra-execution-${this.$moment().format("YYYYMMDDHHmmss")}-${this.executionId}.log`
             },
             logDisplayButtonText() {
                 return this.openedTaskrunsCount === 0 ? this.$t("expand all") : this.$t("collapse all")
@@ -209,17 +239,33 @@
             },
             viewTypeAwareLogIndicesByLevel() {
                 return this.raw_view ? this.temporalViewLogIndicesByLevel : this.logIndicesByLevel;
-            }
+            },
         },
         methods: {
+            loadLogs(){
+                this.executionsStore.loadLogs({
+                    executionId: this.executionId,
+                    minLevel: this.level
+                })
+            },
             downloadContent() {
-                this.$store.dispatch("execution/downloadLogs", {
-                    executionId: this.execution.id,
+                this.executionsStore.downloadLogs({
+                    executionId: this.executionId,
                     params: {
                         minLevel: this.level
                     }
                 }).then((response) => {
                     Utils.downloadUrl(window.URL.createObjectURL(new Blob([response])), this.downloadName);
+                });
+            },
+            copyAllLogs() {
+                this.executionsStore.downloadLogs({
+                    executionId: this.executionId,
+                    params: {
+                        minLevel: this.level,
+                    }
+                }).then((response) => {
+                    Utils.copy(response);
                 });
             },
             forwardEvent(type, event) {
@@ -228,8 +274,13 @@
             prevent(event) {
                 event.preventDefault();
             },
-            onChange() {
-                this.$router.push({query: {...this.$route.query, q: this.filter, level: this.level, page: 1}});
+            onFilterChange(filters) {
+                const levelFilter = filters.find(f => f.key === "level");
+                if (levelFilter) {
+                    this.level = Array.isArray(levelFilter.value) ? levelFilter.value[0] : levelFilter.value;
+                } else {
+                    this.level = undefined;
+                }
             },
             expandCollapseAll() {
                 this.$refs.logs.toggleExpandCollapseAll();
@@ -262,7 +313,7 @@
                     return;
                 }
 
-                const sortedIndices = [...logIndicesForLevel, this.logCursor].filter(Utils.distinctFilter).sort(this.sortLogsByViewOrder);
+                const sortedIndices = [...logIndicesForLevel, this.logCursor].filter(LibUtils.distinctFilter).sort(this.sortLogsByViewOrder);
                 this.logCursor = sortedIndices?.[sortedIndices.indexOf(this.logCursor) - 1] ?? sortedIndices[sortedIndices.length - 1];
             },
             nextLogForLevel(level) {
@@ -272,7 +323,7 @@
                     return;
                 }
 
-                const sortedIndices = [...logIndicesForLevel, this.logCursor].filter(Utils.distinctFilter).sort(this.sortLogsByViewOrder);
+                const sortedIndices = [...logIndicesForLevel, this.logCursor].filter(LibUtils.distinctFilter).sort(this.sortLogsByViewOrder);
                 this.logCursor = sortedIndices?.[sortedIndices.indexOf(this.logCursor) + 1] ?? sortedIndices[0];
             },
             scrollToLog(index) {
@@ -282,46 +333,51 @@
     };
 </script>
 
-<style lang="scss" scoped>
-@import "@kestra-io/ui-libs/src/scss/variables";
+<style scoped lang="scss">
+    @import "@kestra-io/ui-libs/src/scss/variables";
     .attempt-wrapper {
-        background-color: var(--bs-white);
+        background-color: var(--ks-background-card);
 
         :deep(.vue-recycle-scroller__item-view + .vue-recycle-scroller__item-view) {
-            border-top: 1px solid var(--bs-border-color);
-        }
-
-        html.dark & {
-            background-color: var(--bs-gray-100);
+            border-top: 1px solid var(--ks-border-primary);
         }
 
         .attempt-wrapper & {
             border-radius: .25rem;
         }
-        }
+    }
+
     .log-lines {
         max-height: calc(100vh - 335px);
         transition: max-height 0.2s ease-out;
-        margin-top: calc(var(--spacer) / 2);
+        margin-top: .5rem;
 
         .line {
-            padding: calc(var(--spacer) / 2);
+            padding: .5rem;
+        }
+    }
 
-            &.cursor {
-                background-color: var(--bs-gray-300)
-            }
+    .temporal {
+        .line {
+            align-items: flex-start;
         }
+    }
 
-        &::-webkit-scrollbar {
-            width: 5px;
-        }
+    .ks-b-group {
+        min-width: auto!important;
+        max-width: max-content !important;
+    }
 
-        &::-webkit-scrollbar-track {
-            background: var(--bs-gray-500);
-        }
+    :deep(.el-form) {
+        padding: 1rem 1rem 0.5rem 1rem;
+        margin-bottom: 1rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        background-color: var(--ks-background-panel);
+        box-shadow: 2px 3px 3px 0px var(--ks-card-shadow);
+    }
 
-        &::-webkit-scrollbar-thumb {
-            background: var(--bs-primary);
-        }
-        }
+    :deep(.el-form-item) {
+        margin-bottom: 0.5rem !important;
+    }
 </style>

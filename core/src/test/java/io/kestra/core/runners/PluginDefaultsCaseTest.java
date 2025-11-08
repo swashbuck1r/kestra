@@ -1,5 +1,6 @@
 package io.kestra.core.runners;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.NextTaskRun;
@@ -15,45 +16,40 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
+import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.is;
+import static io.kestra.core.tenant.TenantService.MAIN_TENANT;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @Singleton
 public class PluginDefaultsCaseTest {
     @Inject
-    private RunnerUtils runnerUtils;
+    private TestRunnerUtils runnerUtils;
 
     public void taskDefaults() throws TimeoutException, QueueException {
-        Execution execution = runnerUtils.runOne(null, "io.kestra.tests", "plugin-defaults", Duration.ofSeconds(60));
+        Execution execution = runnerUtils.runOne(MAIN_TENANT, "io.kestra.tests", "plugin-defaults", Duration.ofSeconds(60));
 
-        assertThat(execution.getTaskRunList(), hasSize(8));
+        assertThat(execution.getTaskRunList()).hasSize(8);
 
-        assertThat(execution.getTaskRunList().getFirst().getTaskId(), is("first"));
-        assertThat(execution.getTaskRunList().getFirst().getOutputs().get("def"), is("1"));
-        assertThat(execution.getTaskRunList().get(1).getTaskId(), is("second"));
-        assertThat(execution.getTaskRunList().get(1).getOutputs().get("def"), is("2"));
-        assertThat(execution.getTaskRunList().get(2).getTaskId(), is("third"));
-        assertThat(execution.getTaskRunList().get(2).getOutputs().get("def"), is("3"));
+        assertThat(execution.getTaskRunList().getFirst().getTaskId()).isEqualTo("first");
+        assertThat(execution.getTaskRunList().getFirst().getOutputs().get("def")).isEqualTo("1");
+        assertThat(execution.getTaskRunList().get(1).getTaskId()).isEqualTo("second");
+        assertThat(execution.getTaskRunList().get(1).getOutputs().get("def")).isEqualTo("2");
+        assertThat(execution.getTaskRunList().get(2).getTaskId()).isEqualTo("third");
+        assertThat(execution.getTaskRunList().get(2).getOutputs().get("def")).isEqualTo("3");
 
-        assertThat(execution.getTaskRunList().get(4).getTaskId(), is("err-first"));
-        assertThat(execution.getTaskRunList().get(4).getOutputs().get("def"), is("1"));
-        assertThat(execution.getTaskRunList().get(5).getTaskId(), is("err-second"));
-        assertThat(execution.getTaskRunList().get(5).getOutputs().get("def"), is("2"));
-        assertThat(execution.getTaskRunList().get(6).getTaskId(), is("err-third"));
-        assertThat(execution.getTaskRunList().get(6).getOutputs().get("def"), is("3"));
+        assertThat(execution.getTaskRunList().get(4).getTaskId()).isEqualTo("err-first");
+        assertThat(execution.getTaskRunList().get(4).getOutputs().get("def")).isEqualTo("1");
+        assertThat(execution.getTaskRunList().get(5).getTaskId()).isEqualTo("err-second");
+        assertThat(execution.getTaskRunList().get(5).getOutputs().get("def")).isEqualTo("2");
+        assertThat(execution.getTaskRunList().get(6).getTaskId()).isEqualTo("err-third");
+        assertThat(execution.getTaskRunList().get(6).getOutputs().get("def")).isEqualTo("3");
     }
 
     @SuperBuilder
@@ -64,6 +60,15 @@ public class PluginDefaultsCaseTest {
     public static class DefaultSequential1 extends Task implements FlowableTask<DefaultSequential1.Output> {
         @Valid
         protected List<Task> errors;
+
+        @Valid
+        @JsonProperty("finally")
+        @Getter(AccessLevel.NONE)
+        protected List<Task> _finally;
+
+        public List<Task> getFinally() {
+            return this._finally;
+        }
 
         @Valid
         @NotEmpty
@@ -79,6 +84,7 @@ public class PluginDefaultsCaseTest {
                 subGraph,
                 this.tasks,
                 this.errors,
+                this._finally,
                 taskRun,
                 execution
             );
@@ -91,7 +97,10 @@ public class PluginDefaultsCaseTest {
             return Stream
                 .concat(
                     this.tasks != null ? this.tasks.stream() : Stream.empty(),
-                    this.errors != null ? this.errors.stream() : Stream.empty()
+                    Stream.concat(
+                        this.errors != null ? this.errors.stream() : Stream.empty(),
+                        this._finally != null ? this._finally.stream() : Stream.empty()
+                    )
                 )
                 .toList();
         }
@@ -107,6 +116,7 @@ public class PluginDefaultsCaseTest {
                 execution,
                 this.childTasks(runContext, parentTaskRun),
                 FlowableUtils.resolveTasks(this.errors, parentTaskRun),
+                FlowableUtils.resolveTasks(this._finally, parentTaskRun),
                 parentTaskRun
             );
         }

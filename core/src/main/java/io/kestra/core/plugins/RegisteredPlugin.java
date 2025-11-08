@@ -4,8 +4,12 @@ import io.kestra.core.app.AppBlockInterface;
 import io.kestra.core.app.AppPluginInterface;
 import io.kestra.core.models.annotations.PluginSubGroup;
 import io.kestra.core.models.conditions.Condition;
-import io.kestra.core.models.tasks.runners.TaskRunner;
+import io.kestra.core.models.dashboards.DataFilter;
+import io.kestra.core.models.dashboards.DataFilterKPI;
+import io.kestra.core.models.dashboards.charts.Chart;
 import io.kestra.core.models.tasks.Task;
+import io.kestra.core.models.tasks.logs.LogExporter;
+import io.kestra.core.models.tasks.runners.TaskRunner;
 import io.kestra.core.models.triggers.AbstractTrigger;
 import io.kestra.core.secret.SecretPluginInterface;
 import io.kestra.core.storages.StorageInterface;
@@ -29,6 +33,20 @@ import static io.kestra.core.utils.Rethrow.throwFunction;
 @EqualsAndHashCode
 @Builder
 public class RegisteredPlugin {
+    public static final String TASKS_GROUP_NAME = "tasks";
+    public static final String TRIGGERS_GROUP_NAME = "triggers";
+    public static final String CONDITIONS_GROUP_NAME = "conditions";
+    public static final String STORAGES_GROUP_NAME = "storages";
+    public static final String SECRETS_GROUP_NAME = "secrets";
+    public static final String TASK_RUNNERS_GROUP_NAME = "task-runners";
+    public static final String APPS_GROUP_NAME = "apps";
+    public static final String APP_BLOCKS_GROUP_NAME = "app-blocks";
+    public static final String CHARTS_GROUP_NAME = "charts";
+    public static final String DATA_FILTERS_GROUP_NAME = "data-filters";
+    public static final String DATA_FILTERS_KPI_GROUP_NAME = "data-filters-kpi";
+    public static final String LOG_EXPORTERS_GROUP_NAME = "log-exporters";
+    public static final String ADDITIONAL_PLUGINS_GROUP_NAME = "additional-plugins";
+
     private final ExternalPlugin externalPlugin;
     private final Manifest manifest;
     private final ClassLoader classLoader;
@@ -37,9 +55,14 @@ public class RegisteredPlugin {
     private final List<Class<? extends Condition>> conditions;
     private final List<Class<? extends StorageInterface>> storages;
     private final List<Class<? extends SecretPluginInterface>> secrets;
-    private final List<Class<? extends TaskRunner>> taskRunners;
+    private final List<Class<? extends TaskRunner<?>>> taskRunners;
     private final List<Class<? extends AppPluginInterface>> apps;
     private final List<Class<? extends AppBlockInterface>> appBlocks;
+    private final List<Class<? extends Chart<?>>> charts;
+    private final List<Class<? extends DataFilter<?, ?>>> dataFilters;
+    private final List<Class<? extends DataFilterKPI<?, ?>>> dataFiltersKPI;
+    private final List<Class<? extends LogExporter<?>>> logExporters;
+    private final List<Class<? extends AdditionalPlugin>> additionalPlugins;
     private final List<String> guides;
     // Map<lowercasealias, <Alias, Class>>
     private final Map<String, Map.Entry<String, Class<?>>> aliases;
@@ -52,7 +75,12 @@ public class RegisteredPlugin {
             !secrets.isEmpty() ||
             !taskRunners.isEmpty() ||
             !apps.isEmpty()  ||
-            !appBlocks.isEmpty()
+            !appBlocks.isEmpty() ||
+            !charts.isEmpty() ||
+            !dataFilters.isEmpty() ||
+            !dataFiltersKPI.isEmpty() ||
+            !logExporters.isEmpty() ||
+            !additionalPlugins.isEmpty()
         ;
     }
 
@@ -97,7 +125,35 @@ public class RegisteredPlugin {
             return TaskRunner.class;
         }
 
-        if(this.getAliases().containsKey(cls.toLowerCase())) {
+        if (this.getCharts().stream().anyMatch(r -> r.getName().equals(cls))) {
+            return Chart.class;
+        }
+
+        if (this.getDataFilters().stream().anyMatch(r -> r.getName().equals(cls))) {
+            return DataFilter.class;
+        }
+
+        if (this.getDataFiltersKPI().stream().anyMatch(r -> r.getName().equals(cls))) {
+            return DataFilterKPI.class;
+        }
+
+        if (this.getAppBlocks().stream().anyMatch(r -> r.getName().equals(cls))) {
+            return AppBlockInterface.class;
+        }
+
+        if (this.getApps().stream().anyMatch(r -> r.getName().equals(cls))) {
+            return AppPluginInterface.class;
+        }
+
+        if (this.getLogExporters().stream().anyMatch(r -> r.getName().equals(cls))) {
+            return LogExporter.class;
+        }
+
+        if (this.getAdditionalPlugins().stream().anyMatch(r -> r.getName().equals(cls))) {
+            return AdditionalPlugin.class;
+        }
+
+        if (this.getAliases().containsKey(cls.toLowerCase())) {
             // This is a quick-win, but it may trigger an infinite loop ... or not ...
             return baseClass(this.getAliases().get(cls.toLowerCase()).getValue().getName());
         }
@@ -118,21 +174,22 @@ public class RegisteredPlugin {
     public Map<String, List<Class>> allClassGrouped() {
         Map<String, List<Class>> result = new HashMap<>();
 
-        result.put("tasks", Arrays.asList(this.getTasks().toArray(Class[]::new)));
-        result.put("triggers", Arrays.asList(this.getTriggers().toArray(Class[]::new)));
-        result.put("conditions", Arrays.asList(this.getConditions().toArray(Class[]::new)));
-        result.put("storages", Arrays.asList(this.getStorages().toArray(Class[]::new)));
-        result.put("secrets", Arrays.asList(this.getSecrets().toArray(Class[]::new)));
-        result.put("task-runners", Arrays.asList(this.getTaskRunners().toArray(Class[]::new)));
-        result.put("apps", Arrays.asList(this.getApps().toArray(Class[]::new)));
-        result.put("appBlocks", Arrays.asList(this.getAppBlocks().toArray(Class[]::new)));
+        result.put(TASKS_GROUP_NAME, Arrays.asList(this.getTasks().toArray(Class[]::new)));
+        result.put(TRIGGERS_GROUP_NAME, Arrays.asList(this.getTriggers().toArray(Class[]::new)));
+        result.put(CONDITIONS_GROUP_NAME, Arrays.asList(this.getConditions().toArray(Class[]::new)));
+        result.put(STORAGES_GROUP_NAME, Arrays.asList(this.getStorages().toArray(Class[]::new)));
+        result.put(SECRETS_GROUP_NAME, Arrays.asList(this.getSecrets().toArray(Class[]::new)));
+        result.put(TASK_RUNNERS_GROUP_NAME, Arrays.asList(this.getTaskRunners().toArray(Class[]::new)));
+        result.put(APPS_GROUP_NAME, Arrays.asList(this.getApps().toArray(Class[]::new)));
+        result.put(APP_BLOCKS_GROUP_NAME, Arrays.asList(this.getAppBlocks().toArray(Class[]::new)));
+        result.put(CHARTS_GROUP_NAME, Arrays.asList(this.getCharts().toArray(Class[]::new)));
+        result.put(DATA_FILTERS_GROUP_NAME, Arrays.asList(this.getDataFilters().toArray(Class[]::new)));
+        result.put(DATA_FILTERS_KPI_GROUP_NAME, Arrays.asList(this.getDataFiltersKPI().toArray(Class[]::new)));
+        result.put(LOG_EXPORTERS_GROUP_NAME, Arrays.asList(this.getLogExporters().toArray(Class[]::new)));
+        result.put(ADDITIONAL_PLUGINS_GROUP_NAME, Arrays.asList(this.getAdditionalPlugins().toArray(Class[]::new)));
 
         return result;
     }
-
-//    public Map<String, Map<String,List<Class>>> allClassGroupedBySubGroup() {
-//
-//    }
 
     public Set<String> subGroupNames() {
         return allClass()
@@ -141,15 +198,15 @@ public class RegisteredPlugin {
                 var pluginSubGroup = clazz.getPackage().getDeclaredAnnotation(PluginSubGroup.class);
 
                 // some plugins declare subgroup for main plugins
-                if (clazz.getPackageName().length() == this.group().length()) {
+                if (this.group() == null || clazz.getPackageName().length() == this.group().length()) {
                     pluginSubGroup = null;
                 }
 
-                if (pluginSubGroup != null && clazz.getPackageName().startsWith(this.group()) ) {
-                    return this.group() + "." + clazz.getPackageName().substring(this.group().length() + 1);
-                } else {
+                if (pluginSubGroup == null) {
                     return null;
                 }
+
+                return clazz.getPackageName();
             })
             .filter(Objects::nonNull)
             .collect(Collectors.toSet());
@@ -234,8 +291,11 @@ public class RegisteredPlugin {
                 IOUtils.toString(resourceAsStream, StandardCharsets.UTF_8).getBytes(StandardCharsets.UTF_8)
             );
         }
-
         return null;
+    }
+
+    public String icon() {
+        return icon("plugin-icon");
     }
 
     @SneakyThrows
@@ -246,8 +306,11 @@ public class RegisteredPlugin {
                 IOUtils.toString(resourceAsStream, StandardCharsets.UTF_8).getBytes(StandardCharsets.UTF_8)
             );
         }
-
         return null;
+    }
+    
+    public long crc32() {
+        return Optional.ofNullable(externalPlugin).map(ExternalPlugin::getCrc32).orElse(-1L);
     }
 
     @Override
@@ -293,6 +356,48 @@ public class RegisteredPlugin {
         if (!this.getTaskRunners().isEmpty()) {
             b.append("[Task Runners: ");
             b.append(this.getTaskRunners().stream().map(Class::getName).collect(Collectors.joining(", ")));
+            b.append("] ");
+        }
+
+        if (!this.getApps().isEmpty()) {
+            b.append("[Apps: ");
+            b.append(this.getApps().stream().map(Class::getName).collect(Collectors.joining(", ")));
+            b.append("] ");
+        }
+
+        if (!this.getAppBlocks().isEmpty()) {
+            b.append("[AppBlocks: ");
+            b.append(this.getAppBlocks().stream().map(Class::getName).collect(Collectors.joining(", ")));
+            b.append("] ");
+        }
+
+        if (!this.getCharts().isEmpty()) {
+            b.append("[Charts: ");
+            b.append(this.getCharts().stream().map(Class::getName).collect(Collectors.joining(", ")));
+            b.append("] ");
+        }
+
+        if (!this.getDataFilters().isEmpty()) {
+            b.append("[DataFilters: ");
+            b.append(this.getDataFilters().stream().map(Class::getName).collect(Collectors.joining(", ")));
+            b.append("] ");
+        }
+
+        if (!this.getDataFiltersKPI().isEmpty()) {
+            b.append("[DataFiltersKPI: ");
+            b.append(this.getDataFiltersKPI().stream().map(Class::getName).collect(Collectors.joining(", ")));
+            b.append("] ");
+        }
+
+        if (!this.getLogExporters().isEmpty()) {
+            b.append("[Log Exporters: ");
+            b.append(this.getLogExporters().stream().map(Class::getName).collect(Collectors.joining(", ")));
+            b.append("] ");
+        }
+
+        if (!this.getAdditionalPlugins().isEmpty()) {
+            b.append("[Additional Plugins: ");
+            b.append(this.getAdditionalPlugins().stream().map(Class::getName).collect(Collectors.joining(", ")));
             b.append("] ");
         }
 

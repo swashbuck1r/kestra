@@ -1,15 +1,22 @@
 package io.kestra.core.docs;
 
-import io.kestra.core.plugins.RegisteredPlugin;
-import lombok.*;
+import io.kestra.core.plugins.PluginClassAndMetadata;
+import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.ToString;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Getter
 @EqualsAndHashCode
 @ToString
 public class ClassPluginDocumentation<T> extends AbstractClassDocumentation<T> {
+    private static final Map<PluginDocIdentifier, ClassPluginDocumentation<?>> CACHE = new ConcurrentHashMap<>();
     private String icon;
     private String group;
     protected String docLicense;
@@ -21,16 +28,18 @@ public class ClassPluginDocumentation<T> extends AbstractClassDocumentation<T> {
     private Map<String, Object> outputsSchema;
 
     @SuppressWarnings("unchecked")
-    private ClassPluginDocumentation(JsonSchemaGenerator jsonSchemaGenerator, RegisteredPlugin plugin, Class<? extends T> cls, Class<T> baseCls, String alias) {
-        super(jsonSchemaGenerator, cls, baseCls);
+    private ClassPluginDocumentation(JsonSchemaGenerator jsonSchemaGenerator, PluginClassAndMetadata<T> plugin, boolean allProperties) {
+        super(jsonSchemaGenerator, plugin.type(), allProperties ? null : plugin.baseClass());
 
         // plugins metadata
-        this.cls = alias == null ? cls.getName() : alias;
+        Class<? extends T> cls = plugin.type();
+
+        this.cls = plugin.alias() == null ? cls.getName() : plugin.alias();
         this.group = plugin.group();
         this.docLicense = plugin.license();
         this.pluginTitle = plugin.title();
-        this.icon = plugin.icon(cls);
-        if (alias != null) {
+        this.icon = plugin.icon();
+        if (plugin.alias() != null) {
             replacement = cls.getName();
         }
 
@@ -38,10 +47,10 @@ public class ClassPluginDocumentation<T> extends AbstractClassDocumentation<T> {
             this.subGroup = cls.getPackageName().substring(this.group.length() + 1);
         }
 
-        this.shortName = alias == null ? cls.getSimpleName() : alias.substring(alias.lastIndexOf('.') + 1);
+        this.shortName = plugin.alias() == null ? cls.getSimpleName() : plugin.alias().substring(plugin.alias().lastIndexOf('.') + 1);
 
         // outputs
-        this.outputsSchema = jsonSchemaGenerator.outputs(baseCls, cls);
+        this.outputsSchema = jsonSchemaGenerator.outputs(allProperties ? null : plugin.baseClass(), cls);
 
         if (this.outputsSchema.containsKey("$defs")) {
             this.defs.putAll((Map<String, Object>) this.outputsSchema.get("$defs"));
@@ -49,7 +58,7 @@ public class ClassPluginDocumentation<T> extends AbstractClassDocumentation<T> {
         }
 
         if (this.outputsSchema.containsKey("properties")) {
-            this.outputs = flatten(properties(this.outputsSchema), required(this.outputsSchema));
+            this.outputs = flattenWithoutType(properties(this.outputsSchema), required(this.outputsSchema));
         }
 
         // metrics
@@ -67,17 +76,17 @@ public class ClassPluginDocumentation<T> extends AbstractClassDocumentation<T> {
                 .toList();
         }
 
-        if (alias != null) {
+        if (plugin.alias() != null) {
             this.deprecated = true;
         }
     }
 
-    public static <T> ClassPluginDocumentation<T> of(JsonSchemaGenerator jsonSchemaGenerator, RegisteredPlugin plugin, Class<? extends T> cls, Class<T> baseCls) {
-        return new ClassPluginDocumentation<>(jsonSchemaGenerator, plugin, cls, baseCls, null);
-    }
-
-    public static <T> ClassPluginDocumentation<T> of(JsonSchemaGenerator jsonSchemaGenerator, RegisteredPlugin plugin, Class<? extends T> cls, Class<T> baseCls, String alias) {
-        return new ClassPluginDocumentation<>(jsonSchemaGenerator, plugin, cls, baseCls, alias);
+    public static <T> ClassPluginDocumentation<T> of(JsonSchemaGenerator jsonSchemaGenerator, PluginClassAndMetadata<T> plugin, String version, boolean allProperties) {
+        //noinspection unchecked
+        return (ClassPluginDocumentation<T>) CACHE.computeIfAbsent(
+            new PluginDocIdentifier(plugin.type(), version, allProperties),
+            (key) -> new ClassPluginDocumentation<>(jsonSchemaGenerator, plugin, allProperties)
+        );
     }
 
     @AllArgsConstructor
@@ -87,6 +96,12 @@ public class ClassPluginDocumentation<T> extends AbstractClassDocumentation<T> {
         String type;
         String unit;
         String description;
+    }
+
+    private record PluginDocIdentifier(String pluginClassAndVersion, boolean allProperties) {
+        public PluginDocIdentifier(Class<?> pluginClass, String version, boolean allProperties) {
+            this(pluginClass.getName() + ":" + version, allProperties);
+        }
     }
 }
 

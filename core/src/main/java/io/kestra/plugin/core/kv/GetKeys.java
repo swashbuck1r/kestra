@@ -2,7 +2,7 @@ package io.kestra.plugin.core.kv;
 
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.DefaultRunContext;
@@ -26,7 +26,7 @@ import java.util.function.Predicate;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Gets keys matching a given prefix."
+    title = "Fetch all keys matching a given KV pair prefix."
 )
 @Plugin(
     examples = {
@@ -48,28 +48,26 @@ import java.util.function.Predicate;
 )
 public class GetKeys extends Task implements RunnableTask<GetKeys.Output> {
     @Schema(
-        title = "The key for which to get the value."
+        title = "The key for which to get the values"
     )
-    @PluginProperty(dynamic = true)
-    private String prefix;
+    private Property<String> prefix;
 
     @NotNull
     @Schema(
-        title = "The namespace on which to get the value."
+        title = "The namespace from which to get the KV pairs"
     )
-    @PluginProperty(dynamic = true)
     @Builder.Default
-    private String namespace = "{{ flow.namespace }}";
+    private Property<String> namespace = Property.ofExpression("{{ flow.namespace }}");
 
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String renderedNamespace = runContext.render(this.namespace);
+        String renderedNamespace = runContext.render(this.namespace).as(String.class).orElse(null);
 
         FlowService flowService = ((DefaultRunContext) runContext).getApplicationContext().getBean(FlowService.class);
         flowService.checkAllowedNamespace(runContext.flowInfo().tenantId(), renderedNamespace, runContext.flowInfo().tenantId(), runContext.flowInfo().namespace());
 
-        String renderedPrefix = runContext.render(this.prefix);
+        String renderedPrefix = runContext.render(this.prefix).as(String.class).orElse(null);
         Predicate<String> filter = renderedPrefix == null ? key -> true : key -> key.startsWith(renderedPrefix);
 
         List<String> keys = runContext.namespaceKv(renderedNamespace).list().stream()
@@ -86,7 +84,7 @@ public class GetKeys extends Task implements RunnableTask<GetKeys.Output> {
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "Found keys for given prefix."
+            title = "Found keys for given prefix"
         )
         private final List<String> keys;
     }

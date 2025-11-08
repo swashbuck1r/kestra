@@ -1,5 +1,6 @@
 package io.kestra.plugin.core.flow;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
@@ -8,11 +9,9 @@ import io.kestra.core.models.Label;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
-import io.kestra.core.models.executions.Execution;
-import io.kestra.core.models.executions.NextTaskRun;
-import io.kestra.core.models.executions.TaskRun;
-import io.kestra.core.models.executions.TaskRunAttempt;
+import io.kestra.core.models.executions.*;
 import io.kestra.core.models.flows.Flow;
+import io.kestra.core.models.flows.FlowInterface;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.models.hierarchies.GraphCluster;
 import io.kestra.core.models.hierarchies.RelationType;
@@ -33,11 +32,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
+import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import java.io.*;
@@ -62,10 +57,12 @@ import static io.kestra.core.utils.Rethrow.throwFunction;
 @Schema(
     title = "Execute a subflow for each batch of items",
     description = """
-        The `items` value must be Kestra's internal storage URI e.g. an output file from a previous task, or a file from inputs of FILE type.
+        The `items` value must be Kestra's internal storage URI (e.g. an output file from a previous task, or a file from inputs of FILE type).
         Two special variables are available to pass as inputs to the subflow:
         - `taskrun.items` which is the URI of internal storage file containing the batch of items to process
-        - `taskrun.iteration` which is the iteration or batch number"""
+        - `taskrun.iteration` which is the iteration or batch number
+
+        Restarting a parent flow will restart any subflows that has previously been executed."""
 )
 @Plugin(
     examples = {
@@ -238,13 +235,13 @@ import static io.kestra.core.utils.Rethrow.throwFunction;
 public class ForEachItem extends Task implements FlowableTask<VoidOutput>, ChildFlowInterface {
     @NotEmpty
     @PluginProperty(dynamic = true)
-    @Schema(title = "The items to be split into batches and processed. Make sure to set it to Kestra's internal storage URI. This can be either the output from a previous task, formatted as `{{ outputs.task_id.uri }}`, or a FILE type input parameter, like `{{ inputs.myfile }}`. This task is optimized for files where each line represents a single item. Suitable file types include Amazon ION-type files (commonly produced by Query tasks), newline-separated JSON files, or CSV files formatted with one row per line and without a header. For files in other formats such as Excel, CSV, Avro, Parquet, XML, or JSON, it's recommended to first convert them to the ION format. This can be done using the conversion tasks available in the `io.kestra.plugin.serdes` module, which will transform files from their original format to ION.")
+    @Schema(title = "The items to be split into batches and processed – make sure to set it to Kestra's internal storage URI. This can be either the output from a previous task, formatted as `{{ outputs.task_id.uri }}`, or a FILE type input parameter, like `{{ inputs.myfile }}`. This task is optimized for files where each line represents a single item. Suitable file types include Amazon ION-type files (commonly produced by Query tasks), newline-separated JSON files, or CSV files formatted with one row per line and without a header. For files in other formats such as Excel, CSV, Avro, Parquet, XML, or JSON, it's recommended to first convert them to the ION format. This can be done using the conversion tasks available in the `io.kestra.plugin.serdes` module, which will transform files from their original format to ION.")
     private String items;
 
     @NotNull
     @PluginProperty
     @Builder.Default
-    @Schema(title = "How to split the items into batches.")
+    @Schema(title = "How to split the items into batches")
     private ForEachItem.Batch batch = Batch.builder().build();
 
     @NotEmpty
@@ -275,7 +272,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
     private Map<String, Object> inputs;
 
     @Schema(
-        title = "The labels to pass to the subflow to be executed.",
+        title = "The labels to pass to the subflow to be executed",
         implementation = Object.class, oneOf = {List.class, Map.class}
     )
     @PluginProperty(dynamic = true)
@@ -285,22 +282,22 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
 
     @Builder.Default
     @Schema(
-        title = "Whether to wait for the subflows execution to finish before continuing the current execution."
+        title = "Flag specifying whether to wait for the subflows execution to finish before continuing the current execution."
     )
     @PluginProperty
     private final Boolean wait = true;
 
     @Builder.Default
     @Schema(
-        title = "Whether to fail the current execution if the subflow execution fails or is killed.",
-        description = "Note that this option works only if `wait` is set to `true`."
+        title = "Flag specifying whether to fail the current execution if the subflow execution fails or is killed.",
+        description = "Note that this option only works if `wait` is set to `true`."
     )
     @PluginProperty
     private final Boolean transmitFailed = true;
 
     @Builder.Default
     @Schema(
-        title = "Whether the subflow should inherit labels from this execution that triggered it.",
+        title = "Flag specifying whether the subflow should inherit labels from the parent execution that triggered it.",
         description = "By default, labels are not passed to the subflow execution. If you set this option to `true`, the child flow execution will inherit all labels from the parent execution."
     )
     @PluginProperty
@@ -315,6 +312,26 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
     @Valid
     private List<Task> errors;
 
+    @Valid
+    @JsonProperty("finally")
+    @Getter(AccessLevel.NONE)
+    protected List<Task> _finally;
+
+    public List<Task> getFinally() {
+        return this._finally;
+    }
+
+    @Schema(
+        title = "What action to take when a failed execution is restarting",
+        description = """
+            - RETRY_FAILED (default): will restart the each subflow executions that are failed.
+            - NEW_EXECUTION: will create a new subflow execution for each batch of items.""
+            """
+    )
+    @NotNull
+    @Builder.Default
+    private ExecutableTask.RestartBehavior restartBehavior = ExecutableTask.RestartBehavior.RETRY_FAILED;
+
     @Override
     public GraphCluster tasksTree(Execution execution, TaskRun taskRun, List<String> parentValues) throws IllegalVariableEvaluationException {
         GraphCluster subGraph = new GraphCluster(this, taskRun, parentValues, RelationType.SEQUENTIAL);
@@ -323,6 +340,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
             subGraph,
             this.getTasks(),
             this.errors,
+            this._finally,
             taskRun,
             execution
         );
@@ -335,7 +353,10 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
         return Stream
             .concat(
                 this.getTasks() != null ? this.getTasks().stream() : Stream.empty(),
-                this.errors != null ? this.errors.stream() : Stream.empty()
+                Stream.concat(
+                    this.errors != null ? this.errors.stream() : Stream.empty(),
+                    this._finally != null ? this._finally.stream() : Stream.empty()
+                )
             )
             .toList();
     }
@@ -351,6 +372,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
             execution,
             this.childTasks(runContext, parentTaskRun),
             FlowableUtils.resolveTasks(this.errors, parentTaskRun),
+            FlowableUtils.resolveTasks(this._finally, parentTaskRun),
             parentTaskRun
         );
     }
@@ -359,7 +381,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
         return List.of(
             new ForEachItemSplit(this.getId(), this.items, this.batch),
             new ForEachItemExecutable(this.getId(), this.inputs, this.inheritLabels, this.labels, this.wait, this.transmitFailed, this.scheduleDate,
-                new ExecutableTask.SubflowId(this.namespace, this.flowId, Optional.ofNullable(this.revision))
+                new ExecutableTask.SubflowId(this.namespace, this.flowId, Optional.ofNullable(this.revision)), this.restartBehavior
             ),
             new ForEachItemMergeOutputs(this.getId())
         );
@@ -424,8 +446,9 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
         private Boolean transmitFailed;
         private Property<ZonedDateTime> scheduleOn;
         private SubflowId subflowId;
+        private RestartBehavior restartBehavior;
 
-        private ForEachItemExecutable(String parentId, Map<String, Object> inputs, Boolean inheritLabels, List<Label> labels, Boolean wait, Boolean transmitFailed, Property<ZonedDateTime> scheduleOn, SubflowId subflowId) {
+        private ForEachItemExecutable(String parentId, Map<String, Object> inputs, Boolean inheritLabels, List<Label> labels, Boolean wait, Boolean transmitFailed, Property<ZonedDateTime> scheduleOn, SubflowId subflowId, RestartBehavior restartBehavior) {
             this.inputs = inputs;
             this.inheritLabels = inheritLabels;
             this.labels = labels;
@@ -433,6 +456,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
             this.transmitFailed = transmitFailed;
             this.scheduleOn = scheduleOn;
             this.subflowId = subflowId;
+            this.restartBehavior = restartBehavior;
 
             this.id = parentId + SUFFIX;
             this.type = ForEachItemExecutable.class.getName();
@@ -441,7 +465,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
         @Override
         public List<SubflowExecution<?>> createSubflowExecutions(
             RunContext runContext,
-            FlowExecutorInterface flowExecutorInterface,
+            FlowMetaStoreInterface flowExecutorInterface,
             Flow currentFlow,
             Execution currentExecution,
             TaskRun currentTaskRun
@@ -454,11 +478,11 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
             try (InputStream is = runContext.storage().getFile(splitsURI)){
                 String fileContent = new String(is.readAllBytes());
                 List<URI> splits = fileContent.lines().map(line -> URI.create(line)).toList();
-                AtomicInteger currentIteration = new AtomicInteger(1);
+                AtomicInteger currentIteration = new AtomicInteger(0);
 
                 return splits
                     .stream()
-                    .<SubflowExecution<?>>map(throwFunction(
+                    .map(throwFunction(
                         split -> {
                             int iteration = currentIteration.getAndIncrement();
                             // these are special variable that can be passed to the subflow
@@ -483,7 +507,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
                                     currentFlow,
                                     this,
                                     currentTaskRun
-                                        .withOutputs(outputs.toMap())
+                                        .withOutputs(Variables.inMemory(outputs.toMap()))
                                         .withIteration(iteration),
                                     inputs,
                                     labels,
@@ -492,6 +516,8 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
                                 );
                         }
                     ))
+                    .filter(Optional::isPresent)
+                    .<SubflowExecution<?>>map(Optional::get)
                     .toList();
             } catch (IOException e) {
                 throw new InternalException(e);
@@ -503,25 +529,19 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
         public Optional<SubflowExecutionResult> createSubflowExecutionResult(
             RunContext runContext,
             TaskRun taskRun,
-            Flow flow,
+            FlowInterface flow,
             Execution execution
         ) {
 
             // We only resolve subflow outputs for an execution result when the execution is terminated.
             if (taskRun.getState().isTerminated() && flow.getOutputs() != null && waitForExecution()) {
-                final Map<String, Object> outputs = flow.getOutputs()
-                    .stream()
-                    .collect(Collectors.toMap(
-                        io.kestra.core.models.flows.Output::getId,
-                        io.kestra.core.models.flows.Output::getValue)
-                    );
                 final ForEachItem.Output.OutputBuilder builder = Output
                     .builder()
                     .iterations((Map<State.Type, Integer>) taskRun.getOutputs().get(ExecutableUtils.TASK_VARIABLE_ITERATIONS))
                     .numberOfBatches((Integer) taskRun.getOutputs().get(ExecutableUtils.TASK_VARIABLE_NUMBER_OF_BATCHES));
 
                 try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                    FileSerde.write(bos, runContext.render(outputs));
+                    FileSerde.write(bos, FlowInputOutput.renderFlowOutputs(flow.getOutputs(), runContext));
                     URI uri = runContext.storage().putFile(
                         new ByteArrayInputStream(bos.toByteArray()),
                         URI.create((String) taskRun.getOutputs().get("uri"))
@@ -529,11 +549,11 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
                     builder.uri(uri);
                 } catch (Exception e) {
                     runContext.logger().warn("Failed to extract outputs with the error: '{}'", e.getLocalizedMessage(), e);
-                    var state = this.isAllowFailure() ? State.Type.WARNING : State.Type.FAILED;
+                    var state = State.Type.fail(this);
                     taskRun = taskRun
                         .withState(state)
                         .withAttempts(Collections.singletonList(TaskRunAttempt.builder().state(new State().withState(state)).build()))
-                        .withOutputs(builder.build().toMap());
+                        .withOutputs(Variables.inMemory(builder.build().toMap()));
 
                     return Optional.of(SubflowExecutionResult.builder()
                         .executionId(execution.getId())
@@ -541,7 +561,7 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
                         .parentTaskRun(taskRun)
                         .build());
                 }
-                taskRun = taskRun.withOutputs(builder.build().toMap());
+                taskRun = taskRun.withOutputs(Variables.inMemory(builder.build().toMap()));
             }
 
             // ForEachItem is an iterative task, the terminal state will be computed in the executor while counting on the task run execution list
@@ -624,28 +644,30 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
         private Property<Integer> partitions;
 
         @Builder.Default
-        private Property<Integer> rows = Property.of(1);
+        private Property<Integer> rows = Property.ofValue(1);
 
         @Builder.Default
-        private Property<String> separator = Property.of("\n");
+        private Property<String> separator = Property.ofValue("\n");
+
+        private Property<String> regexPattern;
     }
 
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The counter of iterations for each subflow execution state.",
+            title = "The counter of iterations for each subflow execution state",
             description = "This output will be updated in real-time based on the state of subflow executions.\n It will contain one counter by subflow execution state."
         )
         private final Map<State.Type, Integer> iterations;
 
         @Schema(
-            title = "The number of batches."
+            title = "The number of batches"
         )
         private final Integer numberOfBatches;
 
         @Schema(
-            title = "The URI of the file gathering outputs from each subflow execution."
+            title = "The URI of the file gathering outputs from each subflow execution"
         )
         private final URI uri;
     }
@@ -655,10 +677,12 @@ public class ForEachItem extends Task implements FlowableTask<VoidOutput>, Child
         var outputVariables = (Map<String, Map<String, Object>>) runContext.getVariables().get("outputs");
         var splitTaskOutput = outputVariables.get(taskId);
         if (runContext.getVariables().containsKey("parent")) {
-            // get the parent taskrun value as the value is in the ForEachItem not in one of its subtasks
+            // get the parent taskrun value if exists as the value is in the ForEachItem not in one of its subtasks
             var parent = (Map<String, Map<String, Object>>) runContext.getVariables().get("parent");
-            String value = (String) parent.get("taskrun").get("value");
-            splitTaskOutput = (Map<String, Object>) splitTaskOutput.get(value);
+            if (parent.containsKey("taskrun")) {
+                String value = (String) parent.get("taskrun").get("value");
+                splitTaskOutput = (Map<String, Object>) splitTaskOutput.get(value);
+            }
         }
         return splitTaskOutput;
     }

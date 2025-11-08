@@ -1,6 +1,7 @@
-import {defineConfig} from "vite"
-import vue from "@vitejs/plugin-vue"
-import path from "path";
+import {defineConfig} from "vite";
+import vue from "@vitejs/plugin-vue";
+
+import viteConfig from "./vite.config.js";
 
 export default defineConfig({
     plugins: [
@@ -8,13 +9,13 @@ export default defineConfig({
     ],
     resolve: {
         alias: {
-            "override": path.resolve(__dirname, "src/override/"),
+            ...viteConfig.resolve.alias,
         },
     },
     test: {
-        environment: "jsdom"
+        projects: [".storybook/vitest.config.js", "./vitest.config.unit.js"],
     },
     define: {
-        KESTRA_BASE_PATH: "/ui/",
+        "window.KESTRA_BASE_PATH": "/ui/",
     },
 })

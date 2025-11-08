@@ -1,17 +1,18 @@
 package io.kestra.core.repositories;
 
+import io.kestra.core.models.QueryFilter;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.executions.LogEntry;
-import io.kestra.core.models.executions.statistics.LogStatistics;
-import io.kestra.core.utils.DateUtils;
+import io.kestra.plugin.core.dashboard.data.Logs;
 import io.micronaut.data.model.Pageable;
 import jakarta.annotation.Nullable;
 import org.slf4j.event.Level;
+import reactor.core.publisher.Flux;
 
 import java.time.ZonedDateTime;
 import java.util.List;
 
-public interface LogRepositoryInterface extends SaveRepositoryInterface<LogEntry> {
+public interface LogRepositoryInterface extends SaveRepositoryInterface<LogEntry>, QueryBuilderInterface<Logs.Fields> {
     /**
      * Finds all the log entries for the given tenant, execution and min log-level.
      * <p>
@@ -74,34 +75,28 @@ public interface LogRepositoryInterface extends SaveRepositoryInterface<LogEntry
 
     ArrayListTotal<LogEntry> find(
         Pageable pageable,
-        @Nullable String query,
         @Nullable String tenantId,
-        @Nullable String namespace,
-        @Nullable String flowId,
-        @Nullable String triggerId,
-        @Nullable Level minLevel,
-        @Nullable ZonedDateTime startDate,
-        @Nullable ZonedDateTime endDate
+        List<QueryFilter> filters
+        );
+
+    Flux<LogEntry> findAsync(
+        @Nullable String tenantId,
+        List<QueryFilter> filters
     );
 
-    List<LogStatistics> statistics(
-        @Nullable String query,
-        @Nullable String tenantId,
-        @Nullable String namespace,
-        @Nullable String flowId,
-        @Nullable Level minLevel,
-        @Nullable ZonedDateTime startDate,
-        @Nullable ZonedDateTime endDate,
-        @Nullable DateUtils.GroupType groupBy
-    );
+    Flux<LogEntry> findAllAsync(@Nullable String tenantId);
 
     LogEntry save(LogEntry log);
 
     Integer purge(Execution execution);
 
+    Integer purge(List<Execution> executions);
+
     void deleteByQuery(String tenantId, String executionId, String taskId, String taskRunId, Level minLevel, Integer attempt);
 
     void deleteByQuery(String tenantId, String namespace, String flowId, String triggerId);
 
-    int deleteByQuery(String tenantId, String namespace, String flowId, List<Level> logLevels, ZonedDateTime startDate, ZonedDateTime endDate);
+    void deleteByFilters(String tenantId, List<QueryFilter> filters);
+
+    int deleteByQuery(String tenantId, String namespace, String flowId, String executionId, List<Level> logLevels, ZonedDateTime startDate, ZonedDateTime endDate);
 }

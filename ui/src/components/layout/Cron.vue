@@ -1,11 +1,11 @@
 <template>
-    <span data-component="FILENAME_PLACEHOLDER">
+    <span>
         {{ humanReadableCron }}
     </span>
 </template>
 
 <script>
-    import Utils from "../../utils/utils.js";
+    import Utils from "../../utils/utils";
     import cronstrue from "cronstrue";
     import "cronstrue/locales/fr";
 

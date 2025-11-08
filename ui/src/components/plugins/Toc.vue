@@ -1,22 +1,22 @@
 <template>
     <div class="plugins-list">
         <el-input
-            class="search p-2"
+            class="p-2 bg-transparent search"
             :placeholder="$t('pluginPage.search', {count: countPlugin})"
             v-model="searchInput"
             clearable
         />
         <el-collapse accordion v-model="activeNames">
-            <template :key="plugin.title" v-for="(plugin) in sortedPlugins(pluginsList)">
+            <template v-for="(plugin) in sortedPlugins(pluginsList)" :key="plugin.title">
                 <el-collapse-item
                     v-if="isVisible(plugin)"
                     :name="plugin.group"
-                    :title="plugin.title.capitalize()"
+                    :title="plugin.title?.capitalize()"
                     :key="plugin.group"
                     :ref="`plugin-${plugin.group}`"
                 >
                     <ul class="toc-h3">
-                        <li v-for="(types, namespace) in group(plugin, plugin.tasks)" :key="namespace">
+                        <li v-for="(types, namespace) in group(plugin)" :key="namespace">
                             <h6>{{ namespace }}</h6>
                             <ul class="toc-h4">
                                 <li v-for="(classes, type) in types" :key="type + '-' + namespace">
@@ -28,16 +28,17 @@
                                                 :to="{name: 'plugins/view', params: {cls: namespace + '.' + cls}}"
                                             >
                                                 <div class="icon">
-                                                    <task-icon
-                                                        :only-icon="true"
+                                                    <TaskIcon
+                                                        :onlyIcon="true"
                                                         :cls="namespace + '.' + cls"
-                                                        :icons="icons"
+                                                        :icons="pluginsStore.icons"
                                                     />
                                                 </div>
                                                 <span
                                                     :class="$route.params.cls === (namespace + '.' + cls) ? 'selected mx-2' : 'mx-2'"
                                                 >{{
-                                                    cls }}</span>
+                                                    cls
+                                                }}</span>
                                             </router-link>
                                         </li>
                                     </ul>
@@ -52,8 +53,9 @@
 </template>
 
 <script>
-    import TaskIcon from "@kestra-io/ui-libs/src/components/misc/TaskIcon.vue";
-    import {mapState} from "vuex";
+    import {isEntryAPluginElementPredicate, TaskIcon} from "@kestra-io/ui-libs";
+    import {mapStores} from "pinia";
+    import {usePluginsStore} from "../../stores/plugins";
 
     export default {
         emits: ["routerChange"],
@@ -64,15 +66,19 @@
                 searchInput: ""
             }
         },
-        mounted() {
-
-            this.plugins.forEach(plugin => {
-                if (plugin.tasks.includes(this.$route.params.cls)) {
-                    this.activeNames = [plugin.group]
-                    localStorage.setItem("activePlugin", plugin.group);
-                }
-            })
-            this.scrollToActivePlugin();
+        watch: {
+            $route: {
+                handler() {
+                    this.plugins.forEach(plugin => {
+                        if (Object.entries(plugin).some(([key, value]) => isEntryAPluginElementPredicate(key, value) && value.map(({cls}) => cls).includes(this.$route.params.cls))) {
+                            this.activeNames = [plugin.group]
+                            localStorage.setItem("activePlugin", plugin.group);
+                        }
+                    })
+                    this.scrollToActivePlugin();
+                },
+                immediate: true
+            }
         },
         components: {
             TaskIcon
@@ -84,11 +90,9 @@
             }
         },
         computed: {
-            ...mapState("plugin", ["plugin", "icons"]),
+            ...mapStores(usePluginsStore),
             countPlugin() {
-                return this.plugins.reduce((acc, plugin) => {
-                    return acc + plugin.tasks.length + plugin.triggers.length + plugin.conditions.length + plugin.taskRunners.length
-                }, 0)
+                return new Set(this.plugins.flatMap(plugin => this.pluginElements(plugin))).size
             },
             pluginsList() {
                 return this.plugins
@@ -101,25 +105,34 @@
                     // find plugin that match search input
                     .filter(plugin => {
                         return plugin.title.toLowerCase().includes(this.searchInput.toLowerCase()) ||
-                            plugin.tasks.some(task => task.toLowerCase().includes(this.searchInput.toLowerCase())) ||
-                            plugin.triggers.some(trigger => trigger.toLowerCase().includes(this.searchInput.toLowerCase())) ||
-                            plugin.conditions.some(condition => condition.toLowerCase().includes(this.searchInput.toLowerCase())) ||
-                            plugin.taskRunners.some(taskRunner => taskRunner.toLowerCase().includes(this.searchInput.toLowerCase()))
+                            this.pluginElements(plugin).some(element => element.toLowerCase().includes(this.searchInput.toLowerCase()))
                     })
                     // keep only task that match search input
                     .map(plugin => {
                         return {
                             ...plugin,
-                            tasks: plugin.tasks.filter(task => task.toLowerCase().includes(this.searchInput.toLowerCase())),
-                            triggers: plugin.triggers.filter(trigger => trigger.toLowerCase().includes(this.searchInput.toLowerCase())),
-                            conditions: plugin.conditions.filter(condition => condition.toLowerCase().includes(this.searchInput.toLowerCase())),
-                            taskRunners: plugin.taskRunners.filter(taskRunner => taskRunner.toLowerCase().includes(this.searchInput.toLowerCase()))
+                            ...Object.fromEntries(
+                                Object.entries(plugin)
+                                    .filter(([key, value]) => isEntryAPluginElementPredicate(key, value))
+                                    .map(([elementType, elements]) => [
+                                        elementType,
+                                        elements.filter(({deprecated}) => !deprecated)
+                                            .filter(({cls}) => cls.toLowerCase().includes(this.searchInput.toLowerCase()))
+                                    ])
+                            )
                         }
                     })
             }
         },
         methods: {
-
+            pluginElements(plugin) {
+                return Object.entries(plugin)
+                    .filter(([key, value]) => isEntryAPluginElementPredicate(key, value))
+                    .flatMap(([_, value]) => value
+                        .filter(({deprecated}) => !deprecated)
+                        .map(({cls}) => cls)
+                    )
+            },
             scrollToActivePlugin() {
                 const activePlugin = localStorage.getItem("activePlugin");
                 if (activePlugin) {
@@ -132,13 +145,11 @@
                     });
                 }
             },
-
             // When user navigates to a different plugin, save the new plugin group to localStorage
             handlePluginChange(pluginGroup) {
                 this.activeNames = [pluginGroup];
                 localStorage.setItem("activePlugin", pluginGroup); // Save to localStorage
             },
-
             sortedPlugins(plugins) {
                 return plugins
                     .sort((a, b) => {
@@ -149,19 +160,19 @@
                     })
             },
             group(plugin) {
-                return Object.keys(plugin)
-                    .filter(r => r === "tasks" || r === "triggers" || r === "conditions" || r === "taskRunners")
-                    .flatMap(type => {
-                        return (plugin[type] === undefined ? {} : plugin[type])
-                            .map(task => {
-                                const namespace = task.substring(0, task.lastIndexOf("."));
+                return Object.entries(plugin)
+                    .filter(([key, value]) => isEntryAPluginElementPredicate(key, value))
+                    .flatMap(([type, value]) => {
+                        return value.filter(({deprecated}) => !deprecated)
+                            .map(({cls}) => {
+                                const namespace = cls.substring(0, cls.lastIndexOf("."));
 
                                 return {
-                                    type: type,
+                                    type,
                                     namespace: namespace,
-                                    cls: task.substring(task.lastIndexOf(".") + 1)
+                                    cls: cls.substring(cls.lastIndexOf(".") + 1)
                                 };
-                            })
+                            });
                     })
                     .reduce((accumulator, value) => {
                         accumulator[value.namespace] = accumulator[value.namespace] || {};
@@ -173,78 +184,65 @@
 
             },
             isVisible(plugin) {
-                return [...plugin.tasks, ...plugin.triggers, ...plugin.conditions, ...plugin.taskRunners].length > 0
+                return this.pluginElements(plugin).length > 0
             },
         }
     }
 </script>
 
 <style lang="scss">
-.plugins-list {
-    &.enhance-readability {
-        padding: calc(var(--spacer) * 1.5);
-        background-color: var(--bs-gray-100);
-    }
-
-    &::-webkit-scrollbar {
-        width: 2px;
-    }
-
-    &::-webkit-scrollbar-track {
-        -webkit-border-radius: 10px;
-    }
-
-    &::-webkit-scrollbar-thumb {
-        -webkit-border-radius: 10px;
-        background: var(--bs-gray-600);
-    }
-
-    .el-collapse-item__header {
-        font-size: 0.875rem;
-    }
-
-    ul {
-        list-style: none;
-        padding-inline-start: 0;
-        margin-bottom: 0;
-        font-size: var(--font-size-xs);
-        margin-left: calc(var(--spacer) / 2);
-    }
-
-    h6,
-    a {
-        word-break: break-all;
-        color: var(--el-collapse-header-text-color);
-    }
-
-    .toc-h3 {
-        .icon {
-            width: var(--font-size-sm);
-            height: var(--font-size-sm);
-            display: inline-block;
-            position: relative;
+    .plugins-list {
+        &.enhance-readability {
+            padding: 1.5rem;
+            background-color: var(--bs-gray-100);
         }
 
-        h6 {
-            font-size: 1.1em;
+        .el-collapse-item__header {
+            font-size: 0.875rem;
         }
 
-        .toc-h4 {
-            margin-left: var(--spacer);
+        ul {
+            list-style: none;
+            padding-inline-start: 0;
+            margin-bottom: 0;
+            font-size: var(--font-size-xs);
+            margin-left: .5rem;
+        }
+
+        h6,
+        a {
+            word-break: break-all;
+            color: var(--el-collapse-header-text-color);
+        }
+
+        .toc-h3 {
+            .icon {
+                width: var(--font-size-sm);
+                height: var(--font-size-sm);
+                display: inline-block;
+                position: relative;
+            }
 
             h6 {
-                font-size: var(--font-size-sm);
-                margin-bottom: calc(var(--spacer) / 2);
+                font-size: 1.1em;
             }
 
-            li {
-                margin-bottom: calc(var(--spacer) / 2);
+            .toc-h4 {
+                margin-left: .5rem;
+
+                h6 {
+                    font-size: var(--font-size-sm);
+                    margin-bottom: .5rem;
+                }
+
+                li {
+                    margin-bottom: .5rem;
+                }
             }
         }
     }
-}
 
-.selected {
-    color: var(--bs-purple);
-}
+    .selected {
+        color: var(--ks-content-link);
+    }
 </style>

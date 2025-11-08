@@ -1,12 +1,13 @@
 package io.kestra.core.runners;
 
+import io.kestra.core.models.property.URIFetcher;
 import io.kestra.core.models.tasks.runners.PluginUtilsService;
+import io.kestra.core.serializers.FileSerde;
 import io.kestra.core.utils.IdUtils;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 
-import java.io.File;
-import java.io.FileOutputStream;
+import java.io.*;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,10 +41,13 @@ public abstract class FilesService {
                  }
 
                  if (input == null) {
-                    file.createNewFile();
+                    if(!file.createNewFile()) {
+                        throw new RuntimeException("Unable to create the file: " + file.getName());
+                    }
                  } else {
-                     if (input.startsWith("kestra://")) {
-                         try (var is = runContext.storage().getFile(URI.create(input));
+                     if (URIFetcher.supports(input)) {
+                         var uri = URIFetcher.of(input);
+                         try (var is = new BufferedInputStream(uri.fetch(runContext), FileSerde.BUFFER_SIZE);
                               var out = new FileOutputStream(file)) {
                              IOUtils.copyLarge(is, out);
                          }
@@ -71,13 +75,15 @@ public abstract class FilesService {
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
         if (runContext.logger().isTraceEnabled()) {
-            runContext.logger().trace("Captured {} output(s).", allFilesMatching.size());
+            runContext.logger().trace("Captured {} output file(s).", allFilesMatching.size());
         }
 
         return outputFiles;
     }
 
     private static String resolveUniqueNameForFile(final Path path) {
-        return IdUtils.from(path.toString()) + "-" + path.toFile().getName();
+        String filename = path.getFileName().toString();
+        String encodedFilename = java.net.URLEncoder.encode(filename, java.nio.charset.StandardCharsets.UTF_8);
+        return IdUtils.from(path.toString()) + "-" + encodedFilename;
     }
 }

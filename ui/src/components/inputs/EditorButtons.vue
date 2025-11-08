@@ -1,19 +1,27 @@
 <template>
-    <div v-if="!isNamespace && (isAllowedEdit || canDelete)" class="mx-2">
+    <div v-if="!isNamespace && (isAllowedEdit || canDelete)">
         <el-dropdown>
             <el-button type="default" :disabled="isReadOnly">
                 <DotsVertical title="" />
-                {{ $t("actions") }}
+                {{ t("actions") }}
             </el-button>
             <template #dropdown>
                 <el-dropdown-menu class="m-dropdown-menu">
+                    <el-dropdown-item
+                        v-if="isAllowedEdit"
+                        :icon="Download"
+                        size="large"
+                        @click="forwardEvent('export')"
+                    >
+                        {{ t("flow_export") }}
+                    </el-dropdown-item>
                     <el-dropdown-item
                         v-if="!isCreating && canDelete"
                         :icon="Delete"
                         size="large"
                         @click="forwardEvent('delete-flow', $event)"
                     >
-                        {{ $t("delete") }}
+                        {{ t("delete") }}
                     </el-dropdown-item>
 
                     <el-dropdown-item
@@ -22,33 +30,7 @@
                         size="large"
                         @click="forwardEvent('copy', $event)"
                     >
-                        {{ $t("copy") }}
-                    </el-dropdown-item>
-                    <el-dropdown-item
-                        v-if="isAllowedEdit"
-                        :icon="Exclamation"
-                        size="large"
-                        @click="forwardEvent('open-new-error', null)"
-                        :disabled="!flowHaveTasks"
-                    >
-                        {{ $t("add global error handler") }}
-                    </el-dropdown-item>
-                    <el-dropdown-item
-                        v-if="isAllowedEdit"
-                        :icon="LightningBolt"
-                        size="large"
-                        @click="forwardEvent('open-new-trigger', null)"
-                        :disabled="!flowHaveTasks"
-                    >
-                        {{ $t("add trigger") }}
-                    </el-dropdown-item>
-                    <el-dropdown-item
-                        v-if="isAllowedEdit"
-                        :icon="FileEdit"
-                        size="large"
-                        @click="forwardEvent('open-edit-metadata', null)"
-                    >
-                        {{ $t("edit metadata") }}
+                        {{ t("copy") }}
                     </el-dropdown-item>
                 </el-dropdown-menu>
             </template>
@@ -56,91 +38,56 @@
     </div>
     <div>
         <el-button
+            v-if="isNamespace || isAllowedEdit"
             :icon="ContentSave"
             @click="forwardEvent('save', $event)"
-            v-if="isAllowedEdit"
-            :type="buttonType"
-            :disabled="!haveChange && !isCreating"
+            :type="playgroundStore.enabled ? undefined : 'primary'"
+            :class="{'el-button--playground': playgroundStore.enabled}"
+            :disabled="hasErrors || !canSave"
             class="edit-flow-save-button"
         >
-            {{ $t("save") }}
+            {{ t("save") }}
         </el-button>
     </div>
 </template>
-<script setup>
+<script setup lang="ts">
+    import {computed} from "vue";
+
+    import {useI18n} from "vue-i18n";
     import DotsVertical from "vue-material-design-icons/DotsVertical.vue";
+
     import Delete from "vue-material-design-icons/Delete.vue";
     import ContentCopy from "vue-material-design-icons/ContentCopy.vue";
-    import Exclamation from "vue-material-design-icons/Exclamation.vue";
-    import LightningBolt from "vue-material-design-icons/LightningBolt.vue";
-    import FileEdit from "vue-material-design-icons/FileEdit.vue";
     import ContentSave from "vue-material-design-icons/ContentSave.vue";
-</script>
-<script>
-    import {defineComponent} from "vue";
+    import Download from "vue-material-design-icons/Download.vue";
+    import {usePlaygroundStore} from "../../stores/playground";
 
-    export default defineComponent({
-        emits: [
-            "delete-flow",
-            "copy",
-            "open-new-error",
-            "open-new-trigger",
-            "open-edit-metadata",
-            "save"
-        ],
-        props: {
-            isCreating: {
-                type: Boolean,
-                default: false
-            },
-            isReadOnly: {
-                type: Boolean,
-                default: false
-            },
-            canDelete: {
-                type: Boolean,
-                default: false
-            },
-            isAllowedEdit: {
-                type: Boolean,
-                default: false
-            },
-            haveChange: {
-                type: Boolean,
-                default: false
-            },
-            flowHaveTasks: {
-                type: Boolean,
-                default: false
-            },
-            errors: {
-                type: Array,
-                default: undefined
-            },
-            warnings: {
-                type: Array,
-                default: undefined
-            },
-            isNamespace: {
-                type: Boolean,
-                default: false
-            }
-        },
-        computed: {
-            buttonType() {
-                if (this.errors) {
-                    return "danger";
-                }
+    const playgroundStore = usePlaygroundStore();
 
-                return this.warnings
-                    ? "warning"
-                    : "primary";
-            }
-        },
-        methods: {
-            forwardEvent(type, event) {
-                this.$emit(type, event);
-            }
-        }
-    })
+    const {t} = useI18n();
+
+    const props = defineProps<{
+        isCreating: boolean;
+        isReadOnly: boolean;
+        canDelete: boolean;
+        isAllowedEdit: boolean;
+        haveChange: boolean;
+        flowHaveTasks: boolean;
+        errors: string[] | undefined;
+        warnings: string[] | undefined;
+        isNamespace: boolean;
+    }>()
+
+    const forwardEvent = defineEmits([
+        "delete-flow",
+        "copy",
+        "save",
+        "export"
+    ])
+
+    const hasErrors = computed(() => props.errors && props.errors.length > 0);
+
+    const canSave = computed(() => {
+        return props.haveChange || props.isCreating;
+    });
 </script>

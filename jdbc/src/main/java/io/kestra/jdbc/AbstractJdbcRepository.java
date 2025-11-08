@@ -9,12 +9,13 @@ import io.kestra.core.repositories.ArrayListTotal;
 import io.kestra.core.utils.IdUtils;
 import io.micronaut.data.model.Pageable;
 import io.micronaut.data.model.Sort;
+import io.micronaut.data.model.Sort.Order;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
-import org.jooq.Record;
 import org.jooq.*;
+import org.jooq.Record;
 import org.jooq.impl.DSL;
 
 import java.io.IOException;
@@ -73,7 +74,18 @@ public abstract class AbstractJdbcRepository<T> {
             .of(io.kestra.jdbc.repository.AbstractJdbcRepository.field("value"), MAPPER.writeValueAsString(entity))
         );
     }
-
+    
+    public int count(Condition condition) {
+        return getDslContextWrapper()
+            .transactionResult(configuration -> DSL
+                .using(configuration)
+                .selectCount()
+                .from(getTable())
+                .where(condition)
+                .fetchOne(0, Integer.class)
+            );
+    }
+    
     public void persist(T entity) {
         this.persist(entity, null);
     }
@@ -205,6 +217,16 @@ public abstract class AbstractJdbcRepository<T> {
         return this.fetchPage(context, select, pageable, this::map);
     }
 
+    @SuppressWarnings("unchecked")
+    public <R extends Record> Select<R> buildQuery(DSLContext context, SelectConditionStep<R> select, String orderField){
+        return (Select<R>) context.select(DSL.asterisk())
+            .from(this
+                .sort(select, Pageable.from(Sort.of(Order.asc(orderField))))
+                .asTable("page")
+            )
+            .where(DSL.trueCondition());
+    }
+
     @SneakyThrows
     public List<String> fragments(String query, String yaml) {
         List<String> split = Arrays.asList(StringUtils.split(yaml, "\n"));
@@ -234,7 +256,7 @@ public abstract class AbstractJdbcRepository<T> {
         return Collections.singletonList(String.join("\n", fragments));
     }
 
-    protected <R extends Record> SelectConditionStep<R> sort(SelectConditionStep<R> select, Pageable pageable) {
+    public <R extends Record> SelectConditionStep<R> sort(SelectConditionStep<R> select, Pageable pageable) {
         if (pageable != null && pageable.getSort().isSorted()) {
             pageable
                 .getSort()
@@ -250,9 +272,9 @@ public abstract class AbstractJdbcRepository<T> {
     }
 
     protected <R extends Record> Select<R> limit(SelectConditionStep<R> select, Pageable pageable) {
-       if (pageable == null || pageable.getSize() == -1) {
-           return select;
-       }
+        if (pageable == null || pageable.getSize() == -1) {
+            return select;
+        }
 
         return select
             .limit(pageable.getSize())

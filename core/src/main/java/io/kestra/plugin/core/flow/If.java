@@ -11,6 +11,7 @@ import io.kestra.core.models.executions.TaskRun;
 import io.kestra.core.models.flows.State;
 import io.kestra.core.models.hierarchies.GraphCluster;
 import io.kestra.core.models.hierarchies.RelationType;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.FlowableTask;
 import io.kestra.core.models.tasks.ResolvedTask;
 import io.kestra.core.models.tasks.Task;
@@ -69,17 +70,20 @@ import java.util.stream.Stream;
     aliases = "io.kestra.core.tasks.flows.If"
 )
 public class If extends Task implements FlowableTask<If.Output> {
-    @PluginProperty(dynamic = true)
     @Schema(
         title = "The `If` condition which can be any expression that evaluates to a boolean value.",
         description = "Boolean coercion allows 0, -0, null and '' to evaluate to false, all other values will evaluate to true."
     )
+    // Note: we can't use Property<String> here because of the cache of the property evaluation which causes issue when using If in a ForEach with concurrencyLimit > 1!
+    // See https://github.com/kestra-io/kestra/issues/8697
+    // At some point, if we need it, we should allow bypassing (or clearing) the property evaluation cache
+    @PluginProperty(dynamic = true)
     private String condition;
 
     @Valid
     @PluginProperty
     @Schema(
-        title = "List of tasks to execute if the condition is true."
+        title = "List of tasks to execute if the condition is true"
     )
     @NotEmpty
     private List<Task> then;
@@ -87,7 +91,7 @@ public class If extends Task implements FlowableTask<If.Output> {
     @Valid
     @PluginProperty
     @Schema(
-        title = "List of tasks to execute if the condition is false."
+        title = "List of tasks to execute if the condition is false"
     )
     @JsonProperty("else")
     private List<Task> _else;
@@ -95,9 +99,18 @@ public class If extends Task implements FlowableTask<If.Output> {
     @Valid
     @PluginProperty
     @Schema(
-        title = "List of tasks to execute in case of errors of a child task."
+        title = "List of tasks to execute in case of errors of a child task"
     )
     private List<Task> errors;
+
+    @Valid
+    @JsonProperty("finally")
+    @Getter(AccessLevel.NONE)
+    protected List<Task> _finally;
+
+    public List<Task> getFinally() {
+        return this._finally;
+    }
 
     @Override
     public List<Task> getErrors() {
@@ -112,6 +125,7 @@ public class If extends Task implements FlowableTask<If.Output> {
             subGraph,
             this.then,
             this._else,
+            this._finally,
             this.errors,
             taskRun,
             execution
@@ -127,7 +141,11 @@ public class If extends Task implements FlowableTask<If.Output> {
                 this.then != null ? this.then.stream() : Stream.empty(),
                 Stream.concat(
                     this._else != null ? this._else.stream() : Stream.empty(),
-                    this.errors != null ? this.errors.stream() : Stream.empty())
+                    Stream.concat(
+                        this.errors != null ? this.errors.stream() : Stream.empty(),
+                        this._finally != null ? this._finally.stream() : Stream.empty()
+                    )
+                )
             )
             .toList();
     }
@@ -157,22 +175,26 @@ public class If extends Task implements FlowableTask<If.Output> {
             execution,
             this.childTasks(runContext, parentTaskRun),
             FlowableUtils.resolveTasks(this.errors, parentTaskRun),
+            FlowableUtils.resolveTasks(this._finally, parentTaskRun),
             parentTaskRun
         );
     }
 
     @Override
     public Optional<State.Type> resolveState(RunContext runContext, Execution execution, TaskRun parentTaskRun) throws IllegalVariableEvaluationException {
-        List<ResolvedTask> childTask = this.childTasks(runContext, parentTaskRun);
-        if (ListUtils.isEmpty(childTask)) {
+        List<ResolvedTask> childTasks = ListUtils.emptyOnNull(this.childTasks(runContext, parentTaskRun)).stream()
+            .filter(resolvedTask -> !resolvedTask.getTask().getDisabled())
+            .toList();
+        if (ListUtils.isEmpty(childTasks)) {
             // no next task to run, we guess the state from the parent task
             return Optional.of(execution.guessFinalState(null, parentTaskRun, this.isAllowFailure(), this.isAllowWarning()));
         }
 
         return FlowableUtils.resolveState(
             execution,
-            this.childTasks(runContext, parentTaskRun),
+            childTasks,
             FlowableUtils.resolveTasks(this.getErrors(), parentTaskRun),
+            FlowableUtils.resolveTasks(this.getFinally(), parentTaskRun),
             parentTaskRun,
             runContext,
             this.isAllowFailure(),
@@ -194,7 +216,7 @@ public class If extends Task implements FlowableTask<If.Output> {
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(title = "Condition evaluation result.")
+        @Schema(title = "Condition evaluation result")
         public Boolean evaluationResult;
     }
 }

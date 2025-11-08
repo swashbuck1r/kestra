@@ -1,5 +1,6 @@
 package io.kestra.plugin.core.state;
 
+import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
@@ -11,8 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.io.FileNotFoundException;
 import java.util.Map;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
@@ -24,7 +24,7 @@ class StateTest {
     void run() throws Exception {
         Get get = Get.builder()
             .id(IdUtils.create())
-            .type(Get.class.toString())
+            .type(Get.class.getName())
             .build();
 
         RunContext runContext = TestsUtils.mockRunContext(runContextFactory, get, Map.of(
@@ -33,37 +33,37 @@ class StateTest {
         ));
 
         Get.Output getOutput = get.run(runContext);
-        assertThat(getOutput.getCount(), is(0));
+        assertThat(getOutput.getCount()).isZero();
 
         Set set = Set.builder()
             .id(IdUtils.create())
             .type(Set.class.toString())
-            .data(Map.of(
+            .data(Property.ofValue(Map.of(
                 "{{ inputs.key }}", "{{ inputs.inc }}"
-            ))
+            )))
             .build();
         Set.Output setOutput = set.run(runContext);
-        assertThat(setOutput.getCount(), is(1));
+        assertThat(setOutput.getCount()).isEqualTo(1);
 
         get = Get.builder()
             .id(IdUtils.create())
             .type(Get.class.toString())
             .build();
         getOutput = get.run(runContext);
-        assertThat(getOutput.getCount(), is(1));
-        assertThat(getOutput.getData().get("test"), is("1"));
+        assertThat(getOutput.getCount()).isEqualTo(1);
+        assertThat(getOutput.getData().get("test")).isEqualTo("1");
 
         set = Set.builder()
             .id(IdUtils.create())
             .type(Set.class.toString())
-            .data(Map.of(
+            .data(Property.ofValue(Map.of(
                 "{{ inputs.key }}", "2",
                 "test2", "3"
-            ))
+            )))
             .build();
 
         setOutput = set.run(runContext);
-        assertThat(setOutput.getCount(), is(2));
+        assertThat(setOutput.getCount()).isEqualTo(2);
 
         get = Get.builder()
             .id(IdUtils.create())
@@ -72,9 +72,9 @@ class StateTest {
 
         getOutput = get.run(runContext);
 
-        assertThat(getOutput.getCount(), is(2));
-        assertThat(getOutput.getData().get("test"), is("2"));
-        assertThat(getOutput.getData().get("test2"), is("3"));
+        assertThat(getOutput.getCount()).isEqualTo(2);
+        assertThat(getOutput.getData().get("test")).isEqualTo("2");
+        assertThat(getOutput.getData().get("test2")).isEqualTo("3");
 
         Delete delete = Delete.builder()
             .id(IdUtils.create())
@@ -82,7 +82,7 @@ class StateTest {
             .build();
 
         Delete.Output deleteRun = delete.run(runContext);
-        assertThat(deleteRun.getDeleted(), is(true));
+        assertThat(deleteRun.getDeleted()).isTrue();
 
 
         get = Get.builder()
@@ -92,16 +92,16 @@ class StateTest {
 
         getOutput = get.run(runContext);
 
-        assertThat(getOutput.getCount(), is(0));
+        assertThat(getOutput.getCount()).isZero();
     }
 
     @Test
     void deleteThrow() {
         Delete task = Delete.builder()
             .id(IdUtils.create())
-            .type(Get.class.toString())
-            .name(IdUtils.create())
-            .errorOnMissing(true)
+            .type(Get.class.getName())
+            .name(Property.ofValue(IdUtils.create()))
+            .errorOnMissing(Property.ofValue(true))
             .build();
 
         assertThrows(FileNotFoundException.class, () -> {
@@ -113,9 +113,9 @@ class StateTest {
     void getThrow() {
         Get task = Get.builder()
             .id(IdUtils.create())
-            .type(Get.class.toString())
-            .name(IdUtils.create())
-            .errorOnMissing(true)
+            .type(Get.class.getName())
+            .name(Property.ofValue(IdUtils.create()))
+            .errorOnMissing(Property.ofValue(true))
             .build();
 
         assertThrows(FileNotFoundException.class, () -> {

@@ -10,7 +10,7 @@ import picocli.CommandLine;
 
 @CommandLine.Command(
     name = "flow",
-    description = "handle flows",
+    description = "Manage flows",
     mixinStandardHelpOptions = true,
     subcommands = {
         FlowValidateCommand.class,
@@ -18,6 +18,8 @@ import picocli.CommandLine;
         FlowNamespaceCommand.class,
         FlowDotCommand.class,
         FlowExportCommand.class,
+        FlowUpdateCommand.class,
+        FlowUpdatesCommand.class
     }
 )
 @Slf4j

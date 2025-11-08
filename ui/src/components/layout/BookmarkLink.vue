@@ -1,47 +1,3 @@
-<script lang="ts" setup>
-    import {nextTick, ref} from "vue"
-    import {useI18n} from "vue-i18n";
-    import {useStore} from "vuex";
-    import DeleteOutline from "vue-material-design-icons/DeleteOutline.vue";
-    import PencilOutline from "vue-material-design-icons/PencilOutline.vue";
-    import CheckCircle from "vue-material-design-icons/CheckCircle.vue";
-
-    const {t} = useI18n();
-
-    const $store = useStore()
-
-    const props = defineProps<{
-        href: string
-        title: string
-    }>()
-
-    const editing = ref(false)
-    const updatedTitle = ref(props.title)
-    const titleInput = ref<{focus: () => void, select: () => void} | null>(null)
-
-    function deleteBookmark() {
-        $store.dispatch("starred/remove", {
-            path: props.href
-        })
-    }
-
-    function startEditBookmark() {
-        editing.value = true
-        nextTick(() => {
-            titleInput.value?.focus()
-            titleInput.value?.select()
-        })
-    }
-
-    function renameBookmark() {
-        $store.dispatch("starred/rename", {
-            path: props.href,
-            label: updatedTitle.value
-        })
-        editing.value = false
-    }
-</script>
-
 <template>
     <div class="wrapper">
         <div v-if="editing" class="inputs">
@@ -58,21 +14,76 @@
     </div>
 </template>
 
+<script setup lang="ts">
+    import {nextTick, ref} from "vue"
+    import {useI18n} from "vue-i18n";
+    import DeleteOutline from "vue-material-design-icons/DeleteOutline.vue";
+    import PencilOutline from "vue-material-design-icons/PencilOutline.vue";
+    import CheckCircle from "vue-material-design-icons/CheckCircle.vue";
+    import {ElMessageBox} from "element-plus";
+    import {useBookmarksStore} from "../../stores/bookmarks";
+
+    const {t} = useI18n({useScope: "global"});
+
+    const props = defineProps<{
+        href: string
+        title: string
+    }>()
+
+    const bookmarksStore = useBookmarksStore()
+
+    const editing = ref(false)
+    const updatedTitle = ref(props.title)
+    const titleInput = ref<{focus: () => void, select: () => void} | null>(null)
+
+    function deleteBookmark() {
+        ElMessageBox.confirm(t("remove_bookmark"), t("confirmation"), {
+            type: "warning",
+            confirmButtonText: t("ok"),
+            cancelButtonText: t("close"),
+        }).then(() => {
+            bookmarksStore.remove({path: props.href});
+        });
+    }
+
+    function startEditBookmark() {
+        editing.value = true
+        nextTick(() => {
+            titleInput.value?.focus()
+            titleInput.value?.select()
+        })
+    }
+
+    function renameBookmark() {
+        bookmarksStore.rename({
+            path: props.href,
+            label: updatedTitle.value
+        })
+        editing.value = false
+    }
+</script>
+
 <style scoped>
     .wrapper{
         position: relative;
+
         .buttons {
-            color: var(--el-text-color-regular);
+            color: var(--ks-content-primary);
             position: absolute;
+            align-items: center;
             z-index: 1;
-            top: calc(.35 * var(--spacer));
-            right: calc(.5 * var(--spacer));
+            top: 0;
+            right: 0;
+            bottom: 0;
             display: none;
-            gap: calc(.5 * var(--spacer));
+            gap: .5rem;
+            background-color: var(--ks-background-button-secondary-hover);
+            padding: .5rem;
             > span{
                 cursor: pointer;
             }
         }
+
         &:hover .buttons {
             display: flex;
         }
@@ -93,28 +104,37 @@
 
             .save {
                 position: absolute;
-                top: calc(.5 * var(--spacer));
-                right: calc(.5 * var(--spacer));
+                top: .5rem;
+                right: .5rem;
                 z-index: 2;
-                color: var(--el-text-color-regular);
+                color: var(--ks-content-primary);
                 cursor: pointer;
             }
         }
-    }
-    a {
-        display: block;
-        padding: calc(.25 * var(--spacer)) calc(.5 * var(--spacer));
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        color: var(--el-text-color-regular);
-        font-size: 0.875em;
-        border-radius: 4px;
+
+        a {
+            display: block;
+            padding: .25rem .5rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--ks-content-primary);
+            font-size: 0.875em;
+            border-radius: 4px;
+            transition: none;
+            &:hover{
+                color: var(--ks-content-link);
+
+            }
+        }
+
+        &:hover a {
+            margin-right: 2.5rem;
+        }
+
         &:hover{
-            color: var(--el-text-color-secondary);
-            background-color: var(--el-bg-color);
+            background-color: var(--ks-button-background-secondary-hover);
+            border-radius: 0.25rem;
         }
     }
-
-
 </style>

@@ -1,8 +1,7 @@
 package io.kestra.plugin.core.debug;
 
-import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.plugin.core.log.Log;
-import io.micronaut.core.annotation.NonNull;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
@@ -14,15 +13,16 @@ import io.kestra.core.models.tasks.VoidOutput;
 import io.kestra.core.runners.RunContext;
 import org.slf4j.event.Level;
 
-import jakarta.validation.constraints.NotBlank;
-
+/**
+ * @deprecated
+ */
 @SuperBuilder
 @ToString
 @EqualsAndHashCode
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Log a message in the task logs.",
+    title = "Log a message in the task logs (Deprecated).",
     description = "This task is deprecated, please use the `io.kestra.plugin.core.log.Log` task instead.",
     deprecated = true
 )
@@ -46,20 +46,16 @@ import jakarta.validation.constraints.NotBlank;
 )
 @Deprecated
 public class Echo extends Task implements RunnableTask<VoidOutput> {
-    @NonNull
-    @NotBlank
-    @PluginProperty(dynamic = true)
-    private String format;
+    private Property<String> format;
 
     @Builder.Default
-    @PluginProperty
-    private Level level = Level.INFO;
+    private Property<Level> level = Property.ofValue(Level.INFO);
 
     @Override
     public VoidOutput run(RunContext runContext) throws Exception {
         Log log = Log.builder()
             .level(this.level)
-            .message(this.format)
+            .message(runContext.render(this.format).as(String.class).orElse(null))
             .build();
         log.run(runContext);
         return null;

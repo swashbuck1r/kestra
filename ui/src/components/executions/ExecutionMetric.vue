@@ -1,64 +1,84 @@
 <template>
-    <metrics-table ref="table" :task-run-id="taskRunId" :show-task="true" :execution="execution">
+    <MetricsTable
+        v-if="executionsStore.execution"
+        ref="table"
+        :taskRunId="route.query.metric?.[0] ?? undefined"
+        :showTask="true"
+        :execution="executionsStore.execution"
+        :optionalColumns="optionalColumns"
+    >
         <template #navbar>
-            <el-form-item>
-                <el-select
-                    filterable
-                    clearable
-                    :persistent="false"
-                    :model-value="taskRunId"
-                    @update:model-value="onFilter"
-                    :placeholder="$t('display metric for specific task') + '...'"
-                >
-                    <el-option
-                        v-for="item in selectOptions"
-                        :key="item.value"
-                        :label="item.label"
-                        :value="item.value"
-                    />
-                </el-select>
-            </el-form-item>
+            <KSFilter
+                :configuration="metricFilter"
+                :properties="{
+                    shown: true,
+                    columns: optionalColumns,
+                    storageKey: 'execution-metrics'
+                }"
+                :prefix="'execution-metrics'"
+                :tableOptions="{
+                    chart: {shown: false},
+                    refresh: {shown: true, callback: refresh}
+                }"
+                @update-properties="updateDisplayColumns"
+                legacyQuery
+            />
         </template>
-    </metrics-table>
+    </MetricsTable>
 </template>
-<script>
-    import {mapState} from "vuex";
+<script setup lang="ts">
+    import {onMounted, ref} from "vue";
+    import {useI18n} from "vue-i18n";
+    import {useRoute} from "vue-router";
+    import {useExecutionsStore} from "../../stores/executions";
+    import {useMetricFilter} from "../filter/configurations";
     import MetricsTable from "../executions/MetricsTable.vue";
+    import KSFilter from "../filter/components/KSFilter.vue";
 
-    export default {
-        components: {
-            MetricsTable
-        },
-        emits: ["follow"],
-        mounted() {
-            if (this.$refs.table) {
-                this.$refs.table.loadData(this.$refs.table.onDataLoaded);
-            }
-        },
-        data() {
-            return {
-                isModalOpen: false,
-                taskRunId: undefined
-            };
-        },
-        methods: {
-            onFilter(value) {
-                this.taskRunId = value;
-            }
-        },
-        computed: {
-            ...mapState("execution", ["execution"]),
-            selectOptions() {
-                const options = {};
-                for (const taskRun of this.execution.taskRunList || []) {
-                    options[taskRun.id] = {
-                        label: taskRun.taskId + (taskRun.value ? ` - ${taskRun.value}`: ""),
-                        value: taskRun.id
-                    }
-                }
+    const {t} = useI18n();
+    const route = useRoute();
+    const executionsStore = useExecutionsStore();
+    
+    const metricFilter = useMetricFilter();
 
-                return Object.values(options);
-            },
+    const table = ref<typeof MetricsTable>();
+
+    const optionalColumns = ref([
+        {
+            label: t("task"), 
+            prop: "taskId", 
+            default: true, 
+            description: t("filter.table_column.metrics.task")
         },
+        {
+            label: t("name"), 
+            prop: "name", 
+            default: true, 
+            description: t("filter.table_column.metrics.name")
+        },
+        {
+            label: t("value"), 
+            prop: "value", 
+            default: true, 
+            description: t("filter.table_column.metrics.value")
+        },
+        {
+            label: t("tags"), 
+            prop: "tags", 
+            default: true, 
+            description: t("filter.table_column.metrics.tags")
+        },
+    ]);
+
+    const updateDisplayColumns = (newColumns: string[]) => {
+        table.value?.updateDisplayColumns(newColumns);
     };
+
+    const refresh = () => {
+        table.value!.loadData(table.value!.onDataLoaded);
+    };
+
+    onMounted(() => {
+        table.value!.loadData(table.value!.onDataLoaded);
+    });
 </script>

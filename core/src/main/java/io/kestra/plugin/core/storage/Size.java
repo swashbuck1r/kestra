@@ -3,6 +3,7 @@ package io.kestra.plugin.core.storage;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.DefaultRunContext;
@@ -21,7 +22,7 @@ import java.net.URI;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Get the size of a file from the Kestra's internal storage."
+    title = "Get the size of a file from Kestra's internal storage."
 )
 @Plugin(
     examples = {
@@ -35,17 +36,16 @@ import java.net.URI;
 )
 public class Size extends Task implements RunnableTask<Size.Output> {
     @Schema(
-        title = "The file whose size needs to be fetched.",
-        description = "Must be a `kestra://` storage URI."
+        title = "The file where size needs to be fetched"
     )
-    @PluginProperty(dynamic = true)
     @NotNull
-    private String uri;
+    @PluginProperty(internalStorageURI = true)
+    private Property<String> uri;
 
     @Override
     public Size.Output run(RunContext runContext) throws Exception {
         StorageInterface storageInterface = ((DefaultRunContext)runContext).getApplicationContext().getBean(StorageInterface.class);
-        URI render = URI.create(runContext.render(this.uri));
+        URI render = URI.create(runContext.render(this.uri).as(String.class).orElseThrow());
 
         Long size = storageInterface.getAttributes(runContext.flowInfo().tenantId(), runContext.flowInfo().namespace(), render).getSize();
 
@@ -58,7 +58,7 @@ public class Size extends Task implements RunnableTask<Size.Output> {
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
-            title = "The size of the file."
+            title = "The size of the file"
         )
         private final Long size;
     }

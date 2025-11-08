@@ -8,23 +8,29 @@ import io.kestra.jdbc.JdbcWorkerJobQueueService;
 import io.micronaut.context.ApplicationContext;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.IOException;
 import java.util.function.Consumer;
 
+/**
+ * This specific queue is used to be able to save WorkerJobRunning for each WorkerJob
+ */
 @Slf4j
-public class MysqlWorkerJobQueue implements WorkerJobQueueInterface {
-    private final JdbcWorkerJobQueueService jdbcworkerjobQueueService;
+public class MysqlWorkerJobQueue extends MysqlQueue<WorkerJob> implements WorkerJobQueueInterface {
+    private final JdbcWorkerJobQueueService jdbcWorkerJobQueueService;
 
     public MysqlWorkerJobQueue(ApplicationContext applicationContext) {
-        this.jdbcworkerjobQueueService = applicationContext.getBean(JdbcWorkerJobQueueService.class);
+        super(WorkerJob.class, applicationContext);
+        this.jdbcWorkerJobQueueService = applicationContext.getBean(JdbcWorkerJobQueueService.class);
     }
-
+    
     @Override
-    public Runnable receive(String consumerGroup, Class<?> queueType, Consumer<Either<WorkerJob, DeserializationException>> consumer) {
-        return jdbcworkerjobQueueService.receive(consumerGroup, queueType, consumer);
+    public void close() throws IOException {
+        super.close();
+        jdbcWorkerJobQueueService.close();
     }
-
+    
     @Override
-    public void close() {
-        jdbcworkerjobQueueService.close();
+    public Runnable subscribe(String workerId, String workerGroup, Consumer<Either<WorkerJob, DeserializationException>> consumer) {
+        return jdbcWorkerJobQueueService.subscribe(this, workerId, workerGroup, consumer);
     }
 }

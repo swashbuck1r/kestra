@@ -1,69 +1,46 @@
 <template>
     <div>
-        <nav data-component="FILENAME_PLACEHOLDER#nav" v-if="hasNavBar">
-            <collapse>
+        <nav v-if="hasNavBar">
+            <Collapse>
                 <slot name="navbar" />
-            </collapse>
+            </Collapse>
         </nav>
 
-        <el-container data-component="FILENAME_PLACEHOLDER#container" direction="vertical" v-loading="isLoading">
-            <slot name="top" data-component="FILENAME_PLACEHOLDER#top" />
+        <el-container direction="vertical" v-loading="isLoading">
+            <slot name="top" />
 
-            <pagination v-if="!embed" :size="size" :top="true" :page="page" :total="total" :max="max" @page-changed="onPageChanged">
-                <template #search>
-                    <slot name="search" />
-                </template>
-            </pagination>
+            <slot name="table" />
 
-            <slot name="table" data-component="FILENAME_PLACEHOLDER#table" />
-
-            <pagination v-if="total > 0" :size="size" :page="page" :total="total" :max="max" @page-changed="onPageChanged" />
+            <Pagination v-if="total > 0" :size="size" :page="page" :total="total" @page-changed="onPageChanged" />
         </el-container>
     </div>
 </template>
 
-<script>
+<script lang="ts" setup>
+    import {ref, computed, useSlots} from "vue";
     import Pagination from "./Pagination.vue";
     import Collapse from "./Collapse.vue";
 
-    export default {
-        components: {Pagination, Collapse},
-        emits: ["page-changed"],
-        computed: {
-            hasNavBar() {
-                return !!this.$slots["navbar"];
-            },
-        },
-        data() {
-            return {
-                isLoading: false,
-            };
-        },
-        props: {
-            total: {type: Number, required: true},
-            max: {type: Number, required: false, default: undefined},
-            size: {type: Number, default: 25},
-            page: {type: Number, default: 1},
-            embed: {type: Boolean, default: false},
-        },
+    defineProps<{
+        total: number;
+        size?: number;
+        page?: number;
+        embed?: boolean;
+    }>();
 
-        methods: {
-            prevent(event) {
-                event.preventDefault();
-            },
-            onPageChanged(pagination) {
-                this.$emit("page-changed", pagination);
-            },
-        },
-    };
-</script>
+    const emit = defineEmits<{
+        (e: "page-changed", pagination: any): void;
+    }>();
 
-<style scoped lang="scss">
-    :deep(.el-table) {
-        td {
-            .el-tag {
-                margin-right: calc(var(--spacer) / 3);
-            }
-        }
+    const slots = useSlots();
+
+    const isLoading = ref(false);
+
+    const hasNavBar = computed(() => !!slots["navbar"]);
+
+    function onPageChanged(pagination: any) {
+        emit("page-changed", pagination);
     }
-</style>
+
+    defineExpose({isLoading})
+</script>

@@ -1,69 +1,69 @@
 <template>
     <div class="input-group">
-        <label for="years">Years</label>
+        <label for="years">{{ $t('years') }}</label>
         <el-input-number
             size="small"
-            controls-position="right"
+            controlsPosition="right"
             id="years"
             v-model="years"
             :min="0"
         />
     </div>
     <div class="input-group">
-        <label for="months">Months</label>
+        <label for="months">{{ $t('months') }}</label>
         <el-input-number
             size="small"
-            controls-position="right"
+            controlsPosition="right"
             id="months"
             v-model="months"
             :min="0"
         />
     </div>
     <div class="input-group">
-        <label for="weeks">Weeks</label>
+        <label for="weeks">{{ $t('weeks') }}</label>
         <el-input-number
             size="small"
-            controls-position="right"
+            controlsPosition="right"
             id="weeks"
             v-model="weeks"
             :min="0"
         />
     </div>
     <div class="input-group">
-        <label for="days">Days</label>
+        <label for="days">{{ $t('days') }}</label>
         <el-input-number
             size="small"
-            controls-position="right"
+            controlsPosition="right"
             id="days"
             v-model="days"
             :min="0"
         />
     </div>
     <div class="input-group">
-        <label for="hours">Hours</label>
+        <label for="hours">{{ $t('hours') }}</label>
         <el-input-number
             size="small"
-            controls-position="right"
+            controlsPosition="right"
             id="hours"
             v-model="hours"
             :min="0"
         />
     </div>
     <div class="input-group">
-        <label for="minutes">Minutes</label>
+        <label for="minutes">{{ $t('minutes') }}</label>
         <el-input-number
             size="small"
-            controls-position="right"
+            controlsPosition="right"
             id="minutes"
             v-model="minutes"
             :min="0"
         />
     </div>
     <div class="input-group">
-        <label for="seconds">Seconds</label>
+        <label for="seconds">{{ $t('seconds') }}</label>
         <el-input-number
             size="small"
-            controls-position="right"
+            controlsPosition="right"
             id="seconds"
             v-model="seconds"
             :min="0"
@@ -71,126 +71,125 @@
     </div>
     <div>
         <el-text size="small" :type="durationIssue ? 'danger': ''">
-            {{ durationIssue ?? "or input custom duration:" }}
+            {{ durationIssue ?? $t('input_custom_duration') }}
         </el-text>
-        <el-input type="text" id="customDuration" v-model="customDuration" @input="parseDuration" placeholder="Custom duration" />
+        <el-input type="text" id="customDuration" v-model="customDuration" @input="parseDuration" :placeholder="$t('datepicker.custom duration')" />
     </div>
 </template>
 
-<script>
+<script setup lang="ts">
     import {Duration, Period} from "@js-joda/core";
-    export default {
-        props: {
-            modelValue: {
-                type: String,
-                default: ""
+    import {ref, watch, onMounted, onUpdated} from "vue";
+
+    const props = defineProps<{
+        modelValue?: string;
+    }>();
+
+    const emit = defineEmits<{
+        "update:model-value": [value: string | null];
+    }>();
+
+    const years = ref<number>(0);
+    const months = ref<number>(0);
+    const weeks = ref<number>(0);
+    const days = ref<number>(0);
+    const hours = ref<number>(0);
+    const minutes = ref<number>(0);
+    const seconds = ref<number>(0);
+    const customDuration = ref<string>("");
+    const durationIssue = ref<string | null>(null);
+
+    const updateDuration = () => {
+        let duration = "P"
+        if (years.value > 0) {
+            duration += `${years.value}Y`;
+        }
+        if (months.value > 0) {
+            duration += `${months.value}M`;
+        }
+        if (weeks.value > 0) {
+            duration += `${weeks.value}W`;
+        }
+        if (days.value > 0) {
+            duration += `${days.value}D`;
+        }
+        if (hours.value > 0 || minutes.value > 0 || seconds.value > 0) {
+            duration += "T"
+            if (hours.value > 0) {
+                duration += `${hours.value}H`;
             }
-        },
-        emits: ["update:model-value"],
-        mounted() {
-            this.parseDuration(this.modelValue);
-            this.updateDuration();
-        },
-        updated() {
-            if (this.modelValue) {
-                this.parseDuration(this.modelValue);
-                this.updateDuration();
+            if (minutes.value > 0) {
+                duration += `${minutes.value}M`;
             }
-        },
-        data() {
-            return {
-                years: 0,
-                months: 0,
-                weeks: 0,
-                days: 0,
-                hours: 0,
-                minutes: 0,
-                seconds: 0,
-                customDuration: "",
-                durationIssue: null
-            };
-        },
-        watch: {
-            years: "updateDuration",
-            months: "updateDuration",
-            weeks: "updateDuration",
-            days: "updateDuration",
-            hours: "updateDuration",
-            minutes: "updateDuration",
-            seconds: "updateDuration"
-        },
-        methods: {
-            updateDuration() {
-                let duration = "P"
-                if (this.years > 0) {
-                    duration += `${this.years}Y`;
-                }
-                if (this.months > 0) {
-                    duration += `${this.months}M`;
-                }
-                if (this.weeks > 0) {
-                    duration += `${this.weeks}W`;
-                }
-                if (this.days > 0) {
-                    duration += `${this.days}D`;
-                }
-                if (this.hours > 0 || this.minutes > 0 || this.seconds > 0) {
-                    duration += "T"
-                    if (this.hours > 0) {
-                        duration += `${this.hours}H`;
-                    }
-                    if (this.minutes > 0) {
-                        duration += `${this.minutes}M`;
-                    }
-                    if (this.seconds > 0) {
-                        duration += `${this.seconds}S`;
-                    }
-                }
-
-                if (duration === "P") {
-                    duration = null;
-                }
-
-                this.customDuration = duration;
-                this.durationIssue = null;
-                this.$emit("update:model-value", duration);
-            },
-            parseDuration(durationString) {
-                this.customDuration = durationString;
-                const [datePart, timePart] = durationString.includes("T") ? durationString.split("T") : [durationString, null];
-                let durationIssueMessage = null;
-
-                try {
-                    if (datePart && datePart !== "P") {
-                        const period = Period.parse(datePart);
-                        this.years = period.years();
-                        this.months = period.months();
-                        const days = period.days();
-
-                        this.weeks = Math.floor(days / 7);
-                        this.days = days % 7;
-                    } else {
-                        this.years = 0; this.months = 0; this.weeks = 0; this.days = 0;
-                    }
-
-                    if (timePart) {
-                        const timeDuration = Duration.parse(`PT${timePart}`);
-                        this.hours = timeDuration.toHours();
-                        this.minutes = timeDuration.toMinutes() % 60;
-                        this.seconds = timeDuration.seconds() % 60;
-                    } else {
-                        this.hours = 0; this.minutes = 0; this.seconds = 0;
-                    }
-
-                } catch (e) {
-                    durationIssueMessage = e.message;
-                    this.$emit("update:model-value", null);
-                }
-
-                this.durationIssue = durationIssueMessage;
+            if (seconds.value > 0) {
+                duration += `${seconds.value}S`;
             }
         }
+
+        let finalDuration: string | null = duration;
+        if (duration === "P") {
+            finalDuration = null;
+        }
+
+        customDuration.value = finalDuration ?? "";
+        durationIssue.value = null;
+        emit("update:model-value", finalDuration);
     };
+
+    const parseDuration = (durationString: string) => {
+        customDuration.value = durationString;
+        const [datePart, timePart] = durationString.includes("T") ? durationString.split("T") : [durationString, null];
+        let durationIssueMessage: string | null = null;
+
+        try {
+            if (datePart && datePart !== "P") {
+                const period = Period.parse(datePart);
+                years.value = period.years();
+                months.value = period.months();
+                const parsedDays = period.days();
+
+                weeks.value = Math.floor(parsedDays / 7);
+                days.value = parsedDays % 7;
+            } else {
+                years.value = 0; months.value = 0; weeks.value = 0; days.value = 0;
+            }
+
+            if (timePart) {
+                const timeDuration = Duration.parse(`PT${timePart}`);
+                hours.value = timeDuration.toHours();
+                minutes.value = timeDuration.toMinutes() % 60;
+                seconds.value = timeDuration.seconds() % 60;
+            } else {
+                hours.value = 0; minutes.value = 0; seconds.value = 0;
+            }
+
+        } catch (e) {
+            durationIssueMessage = (e as Error).message;
+            emit("update:model-value", null);
+        }
+
+        durationIssue.value = durationIssueMessage;
+    };
+
+    watch(years, updateDuration);
+    watch(months, updateDuration);
+    watch(weeks, updateDuration);
+    watch(days, updateDuration);
+    watch(hours, updateDuration);
+    watch(minutes, updateDuration);
+    watch(seconds, updateDuration);
+
+    onMounted(() => {
+        parseDuration(props.modelValue ?? "");
+        updateDuration();
+    });
+
+    onUpdated(() => {
+        if (props.modelValue) {
+            parseDuration(props.modelValue);
+            updateDuration();
+        }
+    });
 </script>
 
 <style scoped>
