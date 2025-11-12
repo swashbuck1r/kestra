@@ -40,6 +40,8 @@ updates:
       time: "08:00"
     open-pull-requests-limit: 50
     labels: ["dependency-upgrade", "area/frontend"]
+    commit-message:
+      prefix: "[npm] "
     groups:
       build:
         applies-to: version-updates
@@ -53,6 +55,20 @@ updates:
       vitest:
         applies-to: version-updates
         patterns: ["vitest", "@vitest/*"]
+      patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        exclude-patterns:
+          [
+            "@esbuild/*",
+            "@rollup/*",
+            "@swc/*",
+            "@types/*",
+            "@storybook/*",
+            "vitest",
+            "@vitest/*",
+          ]
+        update-types: ["patch"]
       minor:
         applies-to: version-updates
         patterns: ["*"]
@@ -60,23 +76,31 @@ updates:
             "@esbuild/*",
             "@rollup/*",
             "@swc/*",
-            "@storybook/*",
             "@types/*",
+            "@storybook/*",
             "vitest",
             "@vitest/*",
             # Temporary exclusion of packages below from minor updates
-            "eslint-plugin-storybook",
-            "eslint-plugin-vue",
             "moment-timezone",
             "monaco-editor",
           ]
         update-types: ["minor"]
-      patch:
+      major:
         applies-to: version-updates
         patterns: ["*"]
-        exclude-patterns:
-          ["@esbuild/*", "@rollup/*", "@swc/*", "@storybook/*", "@types/*"]
-        update-types: ["patch"]
+        exclude-patterns: [
+            "@esbuild/*",
+            "@rollup/*",
+            "@swc/*",
+            "@types/*",
+            "@storybook/*",
+            "vitest",
+            "@vitest/*",
+            # Temporary exclusion of packages below from major updates
+            "eslint-plugin-storybook",
+            "eslint-plugin-vue",
+          ]
+        update-types: ["major"]
     ignore:
       # Ignore updates to monaco-yaml, version is pinned to 5.3.1 due to patch-package script additions
       - dependency-name: "monaco-yaml"
