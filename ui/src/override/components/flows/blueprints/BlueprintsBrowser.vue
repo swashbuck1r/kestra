@@ -33,7 +33,7 @@
                         <KSFilter
                             :configuration="blueprintFilter"
                             :buttons="{
-                                savedFilters: {shown: false}, 
+                                savedFilters: {shown: false},
                                 tableOptions: {shown: false}
                             }"
                             :searchInputFullWidth="true"
@@ -67,6 +67,7 @@
                                     </div>
 
                                     <div class="action-button">
+                                        <slot name="buttons" :blueprint="blueprint" />
                                         <el-tooltip v-if="embed && !system" trigger="click" content="Copied" placement="left" :autoClose="2000" effect="light">
                                             <el-button
                                                 type="primary"
@@ -107,9 +108,8 @@
     import {useDocStore} from "../../../../stores/doc";
     import {canCreate} from "override/composables/blueprintsPermissions";
     import {useDataTableActions} from "../../../../composables/useDataTableActions";
-    import useRestoreUrl from "../../../../composables/useRestoreUrl";
     import {useBlueprintFilter} from "../../../../components/filter/configurations";
-    
+
     const blueprintFilter = useBlueprintFilter();
 
     const props = withDefaults(defineProps<{
@@ -127,8 +127,6 @@
     });
 
     const {onPageChanged, onDataLoaded, load, ready, internalPageNumber, internalPageSize} = useDataTableActions({loadData});
-
-    useRestoreUrl();
 
     const emit = defineEmits(["goToDetail", "loaded"]);
 
@@ -273,15 +271,13 @@
         docStore.docId = `blueprints.${props.blueprintType}`;
     });
 
-    watch(route,
-          (newValue, oldValue) => {
-              if (oldValue.name === newValue.name) {
-                  selectedTags.value = initSelectedTags();
-                  searchText.value = route.query.q || "";
-                  load(onDataLoaded);
-              }
-          }
-    );
+    watch(route, (newRoute, oldRoute) => {
+        if (newRoute.name === oldRoute.name) {
+            selectedTags.value = initSelectedTags();
+            searchText.value = newRoute.query.q || "";
+            load(onDataLoaded);
+        }
+    });
 
     watch(searchText, () => {
         load(onDataLoaded);
@@ -404,7 +400,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.25rem;
-        
+
         .tag-item {
             border: 1px solid var(--ks-border-primary);
             color: var(--ks-content-primary);
@@ -416,9 +412,9 @@
     }
 
     .text-section {
-        flex-grow: 1; 
+        flex-grow: 1;
         margin-top: 0.75rem;
-        
+
         .title {
             font-size: 1rem;
             font-weight: 600;

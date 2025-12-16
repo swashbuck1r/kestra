@@ -6,10 +6,12 @@ import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableMap;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.metrics.MetricRegistry;
+import io.kestra.core.models.Plugin;
 import io.kestra.core.models.executions.AbstractMetricEntry;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.triggers.AbstractTrigger;
+import io.kestra.core.plugins.PluginConfigurations;
 import io.kestra.core.services.KVStoreService;
 import io.kestra.core.storages.Storage;
 import io.kestra.core.storages.StorageInterface;
@@ -123,7 +125,12 @@ public class DefaultRunContext extends RunContext {
         this.traceParent = traceParent;
     }
 
+    /**
+     * @deprecated Plugin should not use the ApplicationContext anymore, and neither should they cast to this implementation.
+     *             Plugin should instead rely on supported API only.
+     */
     @JsonIgnore
+    @Deprecated(since = "1.2.0", forRemoval = true)
     public ApplicationContext getApplicationContext() {
         return applicationContext;
     }
@@ -227,6 +234,14 @@ public class DefaultRunContext extends RunContext {
             //Inject all services
             runContext.init(applicationContext);
         }
+        return runContext;
+    }
+
+    @Override
+    public RunContext cloneForPlugin(Plugin plugin) {
+        PluginConfigurations pluginConfigurations = applicationContext.getBean(PluginConfigurations.class);
+        DefaultRunContext runContext = clone();
+        runContext.pluginConfiguration = pluginConfigurations.getConfigurationByPluginTypeOrAliases(plugin.getType(), plugin.getClass());
         return runContext;
     }
 
@@ -575,8 +590,18 @@ public class DefaultRunContext extends RunContext {
     }
 
     @Override
+    public AclChecker acl() {
+        return new AclCheckerImpl(this.applicationContext, flowInfo());
+    }
+
+    @Override
     public LocalPath localPath() {
         return localPath;
+    }
+
+    @Override
+    public InputAndOutput inputAndOutput() {
+        return new InputAndOutputImpl(this.applicationContext, this);
     }
 
     /**

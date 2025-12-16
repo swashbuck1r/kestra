@@ -2,7 +2,6 @@ package io.kestra.webserver.controllers.api;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.ImmutableMap;
-import io.kestra.core.exceptions.InternalException;
 import io.kestra.core.junit.annotations.ExecuteFlow;
 import io.kestra.core.junit.annotations.FlakyTest;
 import io.kestra.core.junit.annotations.KestraTest;
@@ -26,7 +25,8 @@ import io.kestra.core.runners.InputsTest;
 import io.kestra.core.runners.LocalPath;
 import io.kestra.core.runners.RunnerUtils;
 import io.kestra.core.serializers.JacksonMapper;
-import io.kestra.core.storages.StorageContext;
+import io.kestra.core.storages.Namespace;
+import io.kestra.core.storages.NamespaceFactory;
 import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.utils.Await;
 import io.kestra.core.utils.IdUtils;
@@ -60,9 +60,11 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
@@ -126,6 +128,9 @@ class ExecutionControllerRunnerTest {
     @Inject
     private StorageInterface storageInterface;
 
+    @Inject
+    private NamespaceFactory namespaceFactory;
+
     public static final String TESTS_FLOW_NS = "io.kestra.tests";
     public static final String TENANT_ID = "main";
 
@@ -139,8 +144,8 @@ class ExecutionControllerRunnerTest {
         .put("file", Objects.requireNonNull(InputsTest.class.getClassLoader().getResource("data/hello.txt")).getPath())
         .put("secret", "secret")
         .put("array", "[1, 2, 3]")
-        .put("json", "{}")
-        .put("yaml", """
+        .put("json1", "{}")
+        .put("yaml1", """
             some: property
             alist:
             - of
@@ -243,7 +248,7 @@ class ExecutionControllerRunnerTest {
         Execution result = triggerExecutionInputsFlowExecution(true);
 
         assertThat(result.getState().getCurrent()).isEqualTo(State.Type.SUCCESS);
-        assertThat(result.getTaskRunList().size()).isEqualTo(14);
+        assertThat(result.getTaskRunList().size()).isEqualTo(16);
     }
 
     @Test
@@ -717,7 +722,7 @@ class ExecutionControllerRunnerTest {
     @LoadFlows({"flows/valids/inputs.yaml"})
     void downloadInternalStorageFileFromExecution() throws TimeoutException, QueueException{
         Execution execution = runnerUtils.runOne(TENANT_ID, TESTS_FLOW_NS, "inputs", null, (flow, execution1) -> flowIO.readExecutionInputs(flow, execution1, inputs));
-        assertThat(execution.getTaskRunList()).hasSize(14);
+        assertThat(execution.getTaskRunList()).hasSize(16);
 
         String path = (String) execution.getInputs().get("file");
 
@@ -755,7 +760,7 @@ class ExecutionControllerRunnerTest {
     @LoadFlows({"flows/valids/inputs.yaml"})
     void previewInternalStorageFileFromExecution() throws TimeoutException, QueueException{
         Execution defaultExecution = runnerUtils.runOne(TENANT_ID, TESTS_FLOW_NS, "inputs", null, (flow, execution1) -> flowIO.readExecutionInputs(flow, execution1, inputs));
-        assertThat(defaultExecution.getTaskRunList()).hasSize(14);
+        assertThat(defaultExecution.getTaskRunList()).hasSize(16);
 
         String defaultPath = (String) defaultExecution.getInputs().get("file");
 
@@ -776,12 +781,12 @@ class ExecutionControllerRunnerTest {
             .put("file", Objects.requireNonNull(ExecutionControllerTest.class.getClassLoader().getResource("data/iso88591.txt")).getPath())
             .put("secret", "secret")
             .put("array", "[1, 2, 3]")
-            .put("json", "{}")
-            .put("yaml", "{}")
+            .put("json1", "{}")
+            .put("yaml1", "{}")
             .build();
 
         Execution latin1Execution = runnerUtils.runOne(TENANT_ID, TESTS_FLOW_NS, "inputs", null, (flow, execution1) -> flowIO.readExecutionInputs(flow, execution1, latin1FileInputs));
-        assertThat(latin1Execution.getTaskRunList()).hasSize(14);
+        assertThat(latin1Execution.getTaskRunList()).hasSize(16);
 
         String latin1Path = (String) latin1Execution.getInputs().get("file");
 
@@ -844,7 +849,7 @@ class ExecutionControllerRunnerTest {
 
     @Test
     @LoadFlows({"flows/valids/inputs.yaml"})
-    void previewNsFileFromExecution() throws TimeoutException, QueueException, IOException {
+    void previewNsFileFromExecution() throws TimeoutException, QueueException, IOException, URISyntaxException {
         HashMap<String, Object> newInputs = new HashMap<>(InputsTest.inputs);
         URI file = createNsFile(false);
         newInputs.put("file", file);
@@ -970,7 +975,7 @@ class ExecutionControllerRunnerTest {
     @Test
     @LoadFlows({"flows/valids/pause-test.yaml"})
     @SuppressWarnings("unchecked")
-    void resumeExecutionPaused() throws TimeoutException, InterruptedException, QueueException, InternalException {
+    void resumeExecutionPaused() throws TimeoutException, QueueException {
         // Run execution until it is paused
         Execution pausedExecution = runnerUtils.runOneUntilPaused(TENANT_ID, TESTS_FLOW_NS, "pause-test");
         assertThat(pausedExecution.getState().isPaused()).isTrue();
@@ -988,7 +993,7 @@ class ExecutionControllerRunnerTest {
     @Test
     @LoadFlows({"flows/valids/resume-validate.yaml"})
     @SuppressWarnings("unchecked")
-    void resumeValidateExecutionPaused() throws TimeoutException, InterruptedException, QueueException, InternalException {
+    void resumeValidateExecutionPaused() throws TimeoutException, QueueException {
         // Run execution until it is paused
         Execution pausedExecution = runnerUtils.runOneUntilPaused(TENANT_ID, TESTS_FLOW_NS, "resume-validate");
         assertThat(pausedExecution.getState().isPaused()).isTrue();
@@ -1011,7 +1016,7 @@ class ExecutionControllerRunnerTest {
     @SuppressWarnings("unchecked")
     @Test
     @LoadFlows({"flows/valids/pause_on_resume.yaml"})
-    void resumeExecutionPausedWithInputs() throws TimeoutException, InterruptedException, QueueException {
+    void resumeExecutionPausedWithInputs() throws TimeoutException, QueueException {
         // Run execution until it is paused
         Execution pausedExecution = runnerUtils.runOneUntilPaused(TENANT_ID, TESTS_FLOW_NS, "pause_on_resume");
         assertThat(pausedExecution.getState().isPaused()).isTrue();
@@ -1288,7 +1293,6 @@ class ExecutionControllerRunnerTest {
         assertThat(executions.getTotal()).isEqualTo(4L);
     }
 
-    @FlakyTest
     @Test
     @LoadFlows({"flows/valids/pause-test.yaml"})
     void killExecutionPaused() throws TimeoutException, QueueException {
@@ -1306,8 +1310,7 @@ class ExecutionControllerRunnerTest {
         assertThat(killedExecution.getTaskRunList()).hasSize(1);
     }
 
-    // This test is flaky on CI as the flow may be already SUCCESS when we kill it if CI is super slow
-    @RetryingTest(5)
+    @Test
     @LoadFlows({"flows/valids/sleep-long.yml"})
     void killExecution() throws TimeoutException, InterruptedException, QueueException {
         // listen to the execution queue
@@ -2338,11 +2341,11 @@ class ExecutionControllerRunnerTest {
         return tempFile.toPath().toUri();
     }
 
-    private URI createNsFile(boolean nsInAuthority) throws IOException {
+    private URI createNsFile(boolean nsInAuthority) throws IOException, URISyntaxException {
         String namespace = "io.kestra.tests";
         String filePath = "file.txt";
-        storageInterface.createDirectory(MAIN_TENANT, namespace, URI.create(StorageContext.namespaceFilePrefix(namespace)));
-        storageInterface.put(MAIN_TENANT, namespace, URI.create(StorageContext.namespaceFilePrefix(namespace) + "/" + filePath), new ByteArrayInputStream("Hello World".getBytes()));
+        Namespace namespaceStorage = namespaceFactory.of(MAIN_TENANT, namespace, storageInterface);
+        namespaceStorage.putFile(Path.of("/" + filePath), new ByteArrayInputStream("Hello World".getBytes()));
         return URI.create("nsfile://" + (nsInAuthority ? namespace : "") + "/" + filePath);
     }
 

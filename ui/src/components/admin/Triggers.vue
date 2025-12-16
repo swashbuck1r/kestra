@@ -1,5 +1,11 @@
 <template>
-    <TopNavBar :title="routeInfo.title" />
+    <TopNavBar :title="routeInfo.title">
+        <template #additional-right>
+            <el-button :icon="Download" @click="exportTriggersAsStream()">
+                {{ t('export_csv') }}
+            </el-button>
+        </template>
+    </TopNavBar>
     <section class="container" v-if="ready">
         <div>
             <DataTable
@@ -22,6 +28,8 @@
                             columns: optionalColumns,
                             storageKey: storageKey
                         }"
+                        :defaultScope="false"
+                        :defaultTimeRange="false"
                     />
                 </template>
                 <template #table>
@@ -196,24 +204,26 @@
                             className="row-action"
                         >
                             <template #default="scope">
-                                <el-button v-if="scope.row.executionId || scope.row.evaluateRunningDate">
-                                    <Kicon
-                                        :tooltip="$t(`unlock trigger.tooltip.${scope.row.executionId ? 'execution' : 'evaluation'}`)"
-                                        placement="left"
-                                        @click="triggerToUnlock = scope.row"
-                                    >
-                                        <LockOff />
-                                    </Kicon>
-                                </el-button>
-                                <el-button>
-                                    <Kicon
-                                        :tooltip="$t('delete trigger')"
-                                        placement="left"
-                                        @click="confirmDeleteTrigger(scope.row)"
-                                    >
-                                        <Delete />
-                                    </Kicon>
-                                </el-button>
+                                <div class="action-container">
+                                    <el-button v-if="scope.row.executionId || scope.row.evaluateRunningDate">
+                                        <Kicon
+                                            :tooltip="$t(`unlock trigger.tooltip.${scope.row.executionId ? 'execution' : 'evaluation'}`)"
+                                            placement="left"
+                                            @click="triggerToUnlock = scope.row"
+                                        >
+                                            <LockOff />
+                                        </Kicon>
+                                    </el-button>
+                                    <el-button>
+                                        <Kicon
+                                            :tooltip="$t('delete trigger')"
+                                            placement="left"
+                                            @click="confirmDeleteTrigger(scope.row)"
+                                        >
+                                            <Delete />
+                                        </Kicon>
+                                    </el-button>
+                                </div>
                             </template>
                         </el-table-column>
                         <el-table-column :label="$t('backfill')" columnKey="backfill">
@@ -344,7 +354,7 @@
     import {useAuthStore} from "override/stores/auth";
     import {invisibleSpace} from "../../utils/filters";
     import {storageKeys} from "../../utils/constants";
-    import {useTriggerStore} from "../../stores/trigger";
+    import {TriggerDeleteOptions, useTriggerStore} from "../../stores/trigger";
     import {useExecutionsStore} from "../../stores/executions";
     import {useTriggerFilter} from "../filter/configurations";
     import {useDataTableActions} from "../../composables/useDataTableActions";
@@ -359,6 +369,7 @@
     import AlertCircle from "vue-material-design-icons/AlertCircle.vue";
     import CalendarCollapseHorizontalOutline from "vue-material-design-icons/CalendarCollapseHorizontalOutline.vue";
     import Delete from "vue-material-design-icons/Delete.vue";
+    import Download from "vue-material-design-icons/Download.vue";
 
     import Id from "../Id.vue";
     import Kicon from "../Kicon.vue";
@@ -373,7 +384,6 @@
     import SelectTable from "../layout/SelectTable.vue";
     import TriggerAvatar from "../flows/TriggerAvatar.vue";
     import KSFilter from "../filter/components/KSFilter.vue";
-    import useRestoreUrl from "../../composables/useRestoreUrl";
     import MarkdownTooltip from "../layout/MarkdownTooltip.vue";
     import useRouteContext from "../../composables/useRouteContext";
 
@@ -474,8 +484,6 @@
             .filter(Boolean) as ColumnConfig[]
     );
 
-    const {saveRestoreUrl} = useRestoreUrl();
-
     const loadData = (callback?: () => void) => {
         const query = loadQuery({
             size: parseInt(String(route.query?.size ?? "25")),
@@ -501,8 +509,7 @@
 
     const {ready, onSort, onPageChanged, queryWithFilter, load} = useDataTableActions({
         dataTableRef: dataTable,
-        loadData,
-        saveRestoreUrl
+        loadData
     });
 
     const {
@@ -639,7 +646,7 @@
             });
     };
 
-    const confirmDeleteTrigger = (trigger) => {
+    const confirmDeleteTrigger = (trigger: TriggerDeleteOptions) => {
         toast.confirm(
             t("delete trigger confirmation", {id: trigger.id}),
             () => triggerStore.delete({
@@ -833,6 +840,10 @@
             loadData(load);
         }
     });
+
+    async function exportTriggersAsStream() {
+        await triggerStore.exportTriggersAsCSV(route.query);
+    }
 </script>
 
 <style scoped lang="scss">
@@ -844,6 +855,12 @@
     .backfillContainer {
         display: flex;
         align-items: center;
+    }
+
+    .action-container {
+        display: flex;
+        align-items: center;
+        gap: 5px;
     }
 
     .statusIcon {

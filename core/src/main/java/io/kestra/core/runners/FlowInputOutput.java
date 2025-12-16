@@ -3,14 +3,11 @@ package io.kestra.core.runners;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kestra.core.encryption.EncryptionService;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
-import io.kestra.core.exceptions.KestraRuntimeException;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.Data;
 import io.kestra.core.models.flows.DependsOn;
-import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.FlowInterface;
 import io.kestra.core.models.flows.Input;
-import io.kestra.core.models.flows.Output;
 import io.kestra.core.models.flows.RenderableInput;
 import io.kestra.core.models.flows.Type;
 import io.kestra.core.models.flows.input.FileInput;
@@ -64,11 +61,11 @@ import static io.kestra.core.utils.Rethrow.throwFunction;
 public class FlowInputOutput {
     private static final Pattern URI_PATTERN = Pattern.compile("^[a-z]+:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$");
     private static final ObjectMapper YAML_MAPPER = JacksonMapper.ofYaml();
-    
+
     private final StorageInterface storageInterface;
     private final Optional<String> secretKey;
     private final RunContextFactory runContextFactory;
-    
+
     @Inject
     public FlowInputOutput(
         StorageInterface storageInterface,
@@ -79,7 +76,7 @@ public class FlowInputOutput {
         this.runContextFactory = runContextFactory;
         this.secretKey = Optional.ofNullable(secretKey);
     }
-    
+
     /**
      * Validate all the inputs of a given execution of a flow.
      *
@@ -89,15 +86,15 @@ public class FlowInputOutput {
      * @return The list of {@link InputAndValue}.
      */
     public Mono<List<InputAndValue>> validateExecutionInputs(final List<Input<?>> inputs,
-                                                             final Flow flow,
+                                                             final FlowInterface flow,
                                                              final Execution execution,
                                                              final Publisher<CompletedPart> data) {
         if (ListUtils.isEmpty(inputs)) return Mono.just(Collections.emptyList());
-        
+
         return readData(inputs, execution, data, false)
             .map(inputData -> resolveInputs(inputs, flow, execution, inputData, false));
     }
-    
+
     /**
      * Reads all the inputs of a given execution of a flow.
      *
@@ -111,7 +108,7 @@ public class FlowInputOutput {
                                                          final Publisher<CompletedPart> data) {
         return this.readExecutionInputs(flow.getInputs(), flow, execution, data);
     }
-    
+
     /**
      * Reads all the inputs of a given execution of a flow.
      *
@@ -126,7 +123,7 @@ public class FlowInputOutput {
                                                          final Publisher<CompletedPart> data) {
         return readData(inputs, execution, data, true).map(inputData -> this.readExecutionInputs(inputs, flow, execution, inputData));
     }
-    
+
     private Mono<Map<String, Object>> readData(List<Input<?>> inputs, Execution execution, Publisher<CompletedPart> data, boolean uploadFiles) {
         return Flux.from(data)
             .publishOn(Schedulers.boundedElastic())
@@ -159,11 +156,7 @@ public class FlowInputOutput {
                             File tempFile = File.createTempFile(prefix, fileExtension);
                             try (var inputStream = fileUpload.getInputStream();
                                  var outputStream = new FileOutputStream(tempFile)) {
-                                long transferredBytes = inputStream.transferTo(outputStream);
-                                if (transferredBytes == 0) {
-                                    sink.error(new KestraRuntimeException("Can't upload file: " + fileUpload.getFilename()));
-                                    return;
-                                }
+                                inputStream.transferTo(outputStream);
                                 URI from = storageInterface.from(execution, inputId, fileName, tempFile);
                                 sink.next(Map.entry(inputId, from.toString()));
                             } finally {
@@ -235,7 +228,7 @@ public class FlowInputOutput {
         }
         return MapUtils.flattenToNestedMap(resolved);
     }
-    
+
     /**
      * Utility method for retrieving types inputs.
      *
@@ -252,7 +245,7 @@ public class FlowInputOutput {
     ) {
         return resolveInputs(inputs, flow, execution, data, true);
     }
-    
+
     public List<InputAndValue> resolveInputs(
         final List<Input<?>> inputs,
         final FlowInterface flow,
@@ -325,7 +318,7 @@ public class FlowInputOutput {
                 }
             });
             resolvable.setInput(input);
-            
+
             Object value = resolvable.get().value();
 
             // resolve default if needed
@@ -383,11 +376,11 @@ public class FlowInputOutput {
 
     @SuppressWarnings("unchecked")
     private static <T> Object resolveDefaultPropertyAs(Input<?> input, PropertyContext renderer, Class<T> clazz) throws IllegalVariableEvaluationException {
-        return Property.as((Property<T>) input.getDefaults(), renderer, clazz);
+        return Property.as((Property<T>) input.getDefaults().skipCache(), renderer, clazz);
     }
     @SuppressWarnings("unchecked")
     private static <T> Object resolveDefaultPropertyAsList(Input<?> input, PropertyContext renderer, Class<T> clazz) throws IllegalVariableEvaluationException {
-        return Property.asList((Property<List<T>>) input.getDefaults(), renderer, clazz);
+        return Property.asList((Property<List<T>>) input.getDefaults().skipCache(), renderer, clazz);
     }
 
     private RunContext buildRunContextForExecutionAndInputs(final FlowInterface flow, final Execution execution, Map<String, InputAndValue> dependencies, final boolean decryptSecrets) {
@@ -503,8 +496,8 @@ public class FlowInputOutput {
                         yield storageInterface.from(execution, id, current.toString().substring(current.toString().lastIndexOf("/") + 1), new File(current.toString()));
                     }
                 }
-                case JSON -> JacksonMapper.toObject(current.toString());
-                case YAML -> YAML_MAPPER.readValue(current.toString(), JacksonMapper.OBJECT_TYPE_REFERENCE);
+                case JSON -> (current instanceof Map || current instanceof Collection<?>) ? current :  JacksonMapper.toObject(current.toString());
+                case YAML -> (current instanceof Map || current instanceof Collection<?>) ? current : YAML_MAPPER.readValue(current.toString(), JacksonMapper.OBJECT_TYPE_REFERENCE);
                 case URI -> {
                     Matcher matcher = URI_PATTERN.matcher(current.toString());
                     if (matcher.matches()) {
@@ -542,30 +535,6 @@ public class FlowInputOutput {
         } catch (Throwable e) {
             throw new Exception("Expected `" + type + "` but received `" + current + "` with errors:\n```\n" + e.getMessage() + "\n```");
         }
-    }
-
-    public static Map<String, Object> renderFlowOutputs(List<Output> outputs, RunContext runContext) throws IllegalVariableEvaluationException {
-        if (outputs == null) return Map.of();
-
-        // render required outputs
-        Map<String, Object> outputsById = outputs
-            .stream()
-            .filter(output -> output.getRequired() == null || output.getRequired())
-            .collect(HashMap::new, (map, entry) -> map.put(entry.getId(), entry.getValue()), Map::putAll);
-        outputsById = runContext.render(outputsById);
-
-        // render optional outputs one by one to catch, log, and skip any error.
-        for (io.kestra.core.models.flows.Output output : outputs) {
-            if (Boolean.FALSE.equals(output.getRequired())) {
-                try {
-                    outputsById.putAll(runContext.render(Map.of(output.getId(), output.getValue())));
-                } catch (Exception e) {
-                    runContext.logger().warn("Failed to render optional flow output '{}'. Output is ignored.", output.getId(), e);
-                    outputsById.put(output.getId(), null);
-                }
-            }
-        }
-        return outputsById;
     }
 
     /**

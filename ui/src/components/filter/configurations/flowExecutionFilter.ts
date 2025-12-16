@@ -20,7 +20,9 @@ export const useFlowExecutionFilter = (): ComputedRef<FilterConfiguration> => {
                     valueProvider: async () => {
                         const {VALUES} = useValues("executions");
                         return VALUES.EXECUTION_STATES;
-                    }
+                    },
+                    searchable: true,
+                    visibleByDefault: true
                 },
                 {
                     key: "scope",
