@@ -57,6 +57,7 @@ jobs:
         shell: sh
         run: |
           set -x
+          cd kestra
           echo "Creating daily git tag"
           TAG="daily-$(date +%Y-%m-%d)" && git tag -f $TAG && git push origin -f $TAG
           echo "$TAG updated"
