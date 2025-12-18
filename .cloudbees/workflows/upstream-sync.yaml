@@ -52,3 +52,11 @@ jobs:
           git fetch --all
           git merge upstream/develop --no-edit
           git push origin develop --no-verify
+      - uses: docker://alpine/git:v2.45.2
+        name: Update daily tag
+        shell: sh
+        run: |
+          set -x
+          echo "Creating daily git tag"
+          TAG="daily-$(date +%Y-%m-%d)" && git tag -f $TAG && git push origin -f $TAG
+          echo "$TAG updated"
