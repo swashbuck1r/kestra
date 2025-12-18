@@ -38,7 +38,7 @@ jobs:
         with:
           token: ${{ cloudbees.scm.token }}
       - uses: docker://alpine/git:v2.45.2
-        name: Say hello
+        name: Sync repository changes
         shell: sh
         run: |
           set -x
