@@ -36,7 +36,7 @@ jobs:
       - uses: cloudbees-io/configure-git-global-credentials@v1
         name: Git global credentials
         with:
-          token: ${{ secrets.kestra_github_token }}
+          token: ${{ cloudbees.scm.token }}
       - uses: docker://alpine/git:v2.45.2
         name: Say hello
         shell: sh
